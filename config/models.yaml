@@ -1,0 +1,35 @@
+# Provider configuration for multi-LLM evaluation.
+#
+# Adding a new provider in v1+ is two steps:
+#   1. Add a client class in src/thelens/llm/<provider>_client.py
+#   2. Flip `enabled: true` and set the model name below
+# No pipeline code changes required.
+
+providers:
+  anthropic:
+    enabled: true
+    model: claude-opus-4-7
+    max_concurrent: 4
+  openai:
+    enabled: false
+    model: gpt-5
+    max_concurrent: 4
+  gemini:
+    enabled: false
+    model: gemini-2.5-pro
+    max_concurrent: 4
+  grok:
+    enabled: false
+    model: grok-4
+    max_concurrent: 4
+
+# Synthesis-grade tasks (classification, persona generation, page-blind query
+# generation, persona reviews, synthesis, verification) all use this single
+# model regardless of which providers are enabled for multi-LLM evaluation.
+synthesis:
+  provider: anthropic
+  model: claude-opus-4-7
+
+# Per-run hard budget. The `lens estimate` command and the pre-run estimate
+# inside `lens run` abort if the projected cost exceeds this. (Phase 8.)
+budget_usd: 2.50

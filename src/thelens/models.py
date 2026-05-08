@@ -275,3 +275,169 @@ class UsageInfo(BaseModel):
     input_tokens: int
     output_tokens: int
     cost_usd: float
+
+
+# ============================================================================
+# Layer 3a: Page-aware question types (used in dynamic answer schema)
+# ============================================================================
+
+
+class ScoreAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    score: int = Field(ge=1, le=10)
+    justification: str
+
+
+class BooleanWithExplanation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: bool
+    explanation: str
+
+
+QuestionType = Literal["text", "list", "score", "boolean_with_explanation"]
+
+
+class Question(BaseModel):
+    """A single page-aware question loaded from `config/questions.yaml`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: QuestionType
+    prompt: str
+    count: int | None = None
+    max_length: int | None = None
+    item_max_length: int | None = None
+
+
+class PageAwareResponse(BaseModel):
+    """One provider's page-aware answers, written as `llm/<provider>_page_aware.json`.
+
+    `answers` is validated by the dynamic Pydantic model built from
+    `config/questions.yaml`, then stored as a dict for portability — the
+    field shape varies with the question set.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str
+    model: str
+    requested_at: datetime
+    response_received_at: datetime
+    answers: dict[str, object]
+    usage: UsageInfo
+    hallucination_flags: "VerificationResult | None" = None
+
+
+# ============================================================================
+# Layer 3b: Page-blind query generation + per-query results
+# ============================================================================
+
+
+PageBlindIntent = Literal[
+    "discovery",
+    "comparison",
+    "recommendation",
+    "problem_led",
+    "evaluation",
+    "alternative_seeking",
+]
+
+
+class PageBlindQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    intent_type: PageBlindIntent
+    query_text: str
+    reasoning: str
+    expected_competitors: list[str] = Field(default_factory=list, max_length=6)
+
+
+class PageBlindQuerySet(BaseModel):
+    """Output of the query-generation LLM call (one per run, not per provider)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    queries: list[PageBlindQuery] = Field(min_length=3, max_length=8)
+    category_summary: str
+
+
+class PageBlindQueryResult(BaseModel):
+    """One query's result against one provider, with brand-mention post-processing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query_id: str
+    query_text: str
+    response_text: str
+    brand_mentioned: bool
+    mention_position: int | None = None
+    competitors_mentioned: list[str] = Field(default_factory=list)
+
+
+class PageBlindResponse(BaseModel):
+    """One provider's page-blind results, written as `llm/<provider>_page_blind.json`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str
+    model: str
+    requested_at: datetime
+    query_results: list[PageBlindQueryResult]
+    usage: UsageInfo
+
+
+# ============================================================================
+# Verification (separate pass over each page-aware response)
+# ============================================================================
+
+
+SupportLevel = Literal[
+    "supported",
+    "paraphrased",
+    "partially_supported",
+    "unsupported",
+    "opinion_or_inference",
+]
+
+OverallSupportLevel = Literal[
+    "fully_supported",
+    "mostly_supported",
+    "partially_supported",
+    "weakly_supported",
+    "unsupported",
+]
+
+
+class FieldCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    claim_summary: str
+    support_level: SupportLevel
+    notes: str
+
+
+class HallucinationFlag(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    claim: str
+    reason: str
+
+
+class VerificationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verified_at: datetime
+    overall_support_level: OverallSupportLevel
+    field_checks: list[FieldCheck]
+    hallucinations: list[HallucinationFlag] = Field(default_factory=list)
+    notable_omissions: list[str] = Field(default_factory=list, max_length=5)
+
+
+# Resolve forward ref on PageAwareResponse
+PageAwareResponse.model_rebuild()

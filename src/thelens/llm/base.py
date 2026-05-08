@@ -49,6 +49,18 @@ class LLMClient(Protocol):
         disable_web_search: bool = False,
     ) -> tuple[BaseModel, UsageInfo]: ...
 
+    async def complete_text(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 2048,
+        temperature: float = 0.3,
+        disable_web_search: bool = False,
+    ) -> tuple[str, UsageInfo]:
+        """Free-form text completion. Used for page-blind queries where we
+        want the model's natural prose answer, not structured JSON."""
+        ...
+
 
 # ============================================================================
 # Prompt loader

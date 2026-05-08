@@ -116,6 +116,53 @@ class AnthropicClient:
         return parsed, usage
 
 
+    async def complete_text(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 2048,
+        temperature: float = 0.3,
+        disable_web_search: bool = False,
+    ) -> tuple[str, UsageInfo]:
+        """Free-form text response (no tool use, no schema)."""
+        request_kwargs: dict[str, object] = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+        }
+        if not _model_rejects_temperature(self.model):
+            request_kwargs["temperature"] = temperature
+
+        try:
+            response = await self._client.messages.create(**request_kwargs)
+        except Exception as exc:
+            raise LLMError(self.provider_name, self.model, f"API call failed: {exc}") from exc
+
+        text = _extract_text_blocks(response)
+        usage = UsageInfo(
+            provider=self.provider_name,
+            model=self.model,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+            cost_usd=_compute_cost(
+                self.model, response.usage.input_tokens, response.usage.output_tokens
+            ),
+        )
+        return text, usage
+
+
+def _extract_text_blocks(response: object) -> str:
+    """Concatenate text blocks from a (non-tool-use) Messages response."""
+    blocks = getattr(response, "content", None) or []
+    parts: list[str] = []
+    for block in blocks:
+        text = getattr(block, "text", None)
+        if isinstance(text, str):
+            parts.append(text)
+    return "\n".join(parts).strip()
+
+
 def _extract_tool_input(response: object) -> dict | None:
     """Find the first `tool_use` block and return its `input` dict."""
     blocks = getattr(response, "content", None) or []

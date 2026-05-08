@@ -1,0 +1,54 @@
+# Page-aware standard question set.
+#
+# Sent to every enabled evaluator provider with the page text in the prompt.
+# Each provider returns a structured JSON object with one field per question
+# (using `id` as the field name). The Pydantic answer model is built
+# dynamically at runtime from this file.
+#
+# Question types:
+#   text                       free-form short answer (1-3 sentences)
+#   list                       array of strings, with `count` specifying length
+#   score                      integer 1-10 with required justification
+#   boolean_with_explanation   true/false with required explanation
+#
+# Brand-citation behavior is intentionally NOT in this set. We test it via
+# page-blind queries (Layer 3b) instead — asking the model to recommend in
+# the category without showing the page is a more honest signal than asking
+# the model whether it would cite the page in front of it.
+
+questions:
+  - id: one_sentence_summary
+    type: text
+    prompt: "In one sentence, what is this site?"
+    max_length: 200
+
+  - id: intended_audience
+    type: text
+    prompt: "Who is the intended audience? Be specific about role, context, and what they care about."
+    max_length: 300
+
+  - id: primary_action
+    type: text
+    prompt: "What is the primary action this site wants a visitor to take? If multiple actions seem equally weighted, list them and note that the site has not prioritized."
+    max_length: 300
+
+  - id: top_facts
+    type: list
+    count: 5
+    prompt: "List the 5 most important facts a reader should walk away with after visiting this page. Order by importance."
+    item_max_length: 200
+
+  - id: offering
+    type: text
+    prompt: "What does this organization actually offer or sell? If the page is unclear about this, say so."
+    max_length: 400
+
+  - id: missing_or_ambiguous
+    type: list
+    count: 5
+    prompt: "List up to 5 things that are missing, ambiguous, or likely to be misinterpreted on this page. If fewer than 5 issues exist, list only what you find."
+    item_max_length: 200
+
+  - id: self_sufficiency_score
+    type: score
+    prompt: "Rate how self-sufficient the page content is without visual context. 10 means a screen reader user or an LLM with no images would get full meaning; 1 means the page makes no sense without visuals."
