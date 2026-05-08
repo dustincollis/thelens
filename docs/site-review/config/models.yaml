@@ -1,0 +1,74 @@
+# Multi-provider model configuration.
+#
+# Each provider has:
+#   - enabled: whether this provider is queried by default
+#   - model: the exact API model identifier
+#   - temperature: 0.0 to 1.0
+#   - max_tokens: response token cap
+#   - input_cost_per_million: USD per 1M input tokens (for cost estimation)
+#   - output_cost_per_million: USD per 1M output tokens (for cost estimation)
+#
+# Pricing is approximate and used only for the budget estimator. Verify against
+# each provider's current pricing page before relying on it.
+#
+# Model names below are PLACEHOLDERS. Update each to the current model you want
+# to use. Current as of project start; verify before first run.
+
+defaults:
+  # Used for classification, persona generation, page-blind query generation,
+  # synthesis, verification, and persona reviews. Single high-capability model
+  # for orchestration tasks.
+  orchestrator:
+    provider: anthropic
+    model: claude-opus-4-7
+    temperature: 0.3
+    max_tokens: 4096
+
+  # Hard budget cap per run, in USD. Run aborts if estimate exceeds this.
+  max_budget_usd: 2.00
+
+  # Concurrency cap on parallel LLM calls.
+  max_parallel_calls: 4
+
+# Providers used for the multi-LLM evaluation layer (page-aware and page-blind).
+# Disable any provider here to skip it without removing the entry.
+evaluators:
+  anthropic:
+    enabled: true
+    model: claude-opus-4-7
+    temperature: 0.3
+    max_tokens: 2048
+    input_cost_per_million: 15.00
+    output_cost_per_million: 75.00
+
+  openai:
+    enabled: true
+    model: gpt-5
+    temperature: 0.3
+    max_tokens: 2048
+    input_cost_per_million: 5.00
+    output_cost_per_million: 15.00
+
+  gemini:
+    enabled: true
+    model: gemini-2.5-pro
+    temperature: 0.3
+    max_tokens: 2048
+    input_cost_per_million: 3.50
+    output_cost_per_million: 10.50
+
+  xai:
+    enabled: true
+    model: grok-4
+    temperature: 0.3
+    max_tokens: 2048
+    input_cost_per_million: 5.00
+    output_cost_per_million: 15.00
+
+# Page fetching behavior.
+fetch:
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+  timeout_seconds: 30
+  rendered_dom_wait_seconds: 2
+  viewport_width: 1440
+  viewport_height: 900

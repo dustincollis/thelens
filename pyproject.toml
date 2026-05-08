@@ -1,0 +1,33 @@
+[project]
+name = "thelens"
+version = "0.1.0"
+description = "Local-first website audit with multi-LLM evaluation"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "anthropic>=0.40",
+    "openai>=1.50",
+    "google-genai>=0.3",
+    "xai-sdk>=0.1",
+    "playwright>=1.45",
+    "httpx>=0.27",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "pydantic>=2.7",
+    "jinja2>=3.1",
+    "python-pptx>=1.0",
+    "streamlit>=1.35",
+    "typer>=0.12",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+lens = "thelens.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/thelens"]

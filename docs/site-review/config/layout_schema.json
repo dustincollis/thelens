@@ -1,0 +1,217 @@
+{
+  "version": "1.0",
+  "aspect_ratio": "16:9",
+  "slide_dimensions": {
+    "width_inches": 13.333,
+    "height_inches": 7.5
+  },
+  "global_colors": {
+    "severity": {
+      "critical": "#C0392B",
+      "warning": "#E67E22",
+      "info": "#3498DB",
+      "healthy": "#27AE60"
+    },
+    "score_bands": {
+      "low": {"min": 0, "max": 50, "color": "#C0392B"},
+      "medium": {"min": 51, "max": 75, "color": "#E67E22"},
+      "high": {"min": 76, "max": 100, "color": "#27AE60"}
+    },
+    "neutral": {
+      "background": "#FFFFFF",
+      "primary_text": "#1A1A1A",
+      "secondary_text": "#5A5A5A",
+      "rule": "#D8D8D8"
+    }
+  },
+  "footer": {
+    "show_url": true,
+    "show_date": true,
+    "show_slide_number": true,
+    "url_position": "left",
+    "date_position": "right",
+    "slide_number_position": "bottom_right"
+  },
+  "layouts": [
+    "title_slide",
+    "section_divider",
+    "scorecard",
+    "two_column_compare",
+    "three_column_compare",
+    "four_column_matrix",
+    "findings_list",
+    "persona_card",
+    "heatmap",
+    "quote_slide",
+    "recommendation_table"
+  ],
+  "deck_sequence": [
+    {
+      "section": "cover",
+      "layout": "title_slide",
+      "data_path": "manifest",
+      "fields": {
+        "title": "Site Review",
+        "url": "manifest.url",
+        "run_date": "manifest.completed_at",
+        "composite_score": "synthesis.composite_score"
+      }
+    },
+    {
+      "section": "executive_summary",
+      "layout": "findings_list",
+      "data_path": "synthesis.executive_summary",
+      "fields": {
+        "title": "Executive Summary",
+        "findings": "synthesis.executive_summary.top_findings"
+      }
+    },
+    {
+      "section": "site_fingerprint",
+      "layout": "scorecard",
+      "data_path": "classification",
+      "fields": {
+        "title": "Site Fingerprint",
+        "primary_value": "classification.category",
+        "supporting": [
+          "classification.audience_summary",
+          "classification.evident_goal",
+          "classification.brand_register"
+        ]
+      }
+    },
+    {
+      "section": "llm_readiness_scorecard",
+      "layout": "scorecard",
+      "data_path": "synthesis.llm_readiness",
+      "fields": {
+        "title": "LLM-Readiness",
+        "primary_value": "synthesis.llm_readiness.composite",
+        "supporting": [
+          "synthesis.llm_readiness.crawlability",
+          "synthesis.llm_readiness.structure",
+          "synthesis.llm_readiness.self_sufficiency",
+          "synthesis.llm_readiness.trust_signals",
+          "synthesis.llm_readiness.identity_clarity"
+        ]
+      }
+    },
+    {
+      "section": "technical_audit",
+      "layout": "findings_list",
+      "data_path": "technical_audit",
+      "fields": {
+        "title": "Technical Audit",
+        "findings": "synthesis.technical_findings"
+      }
+    },
+    {
+      "section": "identity_clarity",
+      "layout": "three_column_compare",
+      "data_path": "synthesis.identity_clarity",
+      "fields": {
+        "title": "Identity Clarity",
+        "column_1_header": "Self-Stated",
+        "column_1_content": "synthesis.identity_clarity.self_stated",
+        "column_2_header": "LLM with Page",
+        "column_2_content": "synthesis.identity_clarity.page_aware_consensus",
+        "column_3_header": "LLM without Page",
+        "column_3_content": "synthesis.identity_clarity.page_blind_consensus"
+      }
+    },
+    {
+      "section": "multi_llm_page_aware",
+      "layout": "four_column_matrix",
+      "data_path": "llm.page_aware",
+      "fields": {
+        "title": "What the Models Said (with the page)",
+        "providers": ["anthropic", "openai", "gemini", "xai"],
+        "questions": "questions.config"
+      }
+    },
+    {
+      "section": "multi_llm_page_blind",
+      "layout": "four_column_matrix",
+      "data_path": "llm.page_blind",
+      "fields": {
+        "title": "Brand Visibility (without the page)",
+        "providers": ["anthropic", "openai", "gemini", "xai"],
+        "queries": "synthesis.page_blind_queries"
+      }
+    },
+    {
+      "section": "personas_summary",
+      "layout": "findings_list",
+      "data_path": "personas",
+      "fields": {
+        "title": "Reviewer Personas",
+        "findings": "synthesis.persona_summary"
+      }
+    },
+    {
+      "section": "persona_deep_dive",
+      "layout": "persona_card",
+      "data_path": "persona_reviews",
+      "repeat_per": "personas.personas",
+      "max_repeats": 5,
+      "fields": {
+        "name": "persona.name",
+        "role": "persona.role",
+        "goal": "persona.goal",
+        "top_friction": "persona_review.top_friction",
+        "score": "persona_review.score"
+      }
+    },
+    {
+      "section": "convergence",
+      "layout": "findings_list",
+      "data_path": "synthesis.convergence",
+      "fields": {
+        "title": "Where Everyone Agrees",
+        "findings": "synthesis.convergence"
+      }
+    },
+    {
+      "section": "divergence",
+      "layout": "findings_list",
+      "data_path": "synthesis.divergence",
+      "fields": {
+        "title": "Where Evaluators Disagreed",
+        "findings": "synthesis.divergence"
+      }
+    },
+    {
+      "section": "recommendations",
+      "layout": "recommendation_table",
+      "data_path": "synthesis.recommendations",
+      "fields": {
+        "title": "Prioritized Recommendations",
+        "items": "synthesis.recommendations"
+      }
+    },
+    {
+      "section": "methodology",
+      "layout": "findings_list",
+      "data_path": "manifest",
+      "fields": {
+        "title": "Methodology",
+        "findings": [
+          "Models used: anthropic, openai, gemini, xai",
+          "Run completed at: manifest.completed_at",
+          "Total cost: manifest.actual_cost_usd",
+          "Personas generated: manifest.personas_generated",
+          "Pipeline version: 1.0"
+        ]
+      }
+    },
+    {
+      "section": "end",
+      "layout": "section_divider",
+      "data_path": "manifest",
+      "fields": {
+        "title": "End of Report",
+        "subtitle": "manifest.run_id"
+      }
+    }
+  ]
+}
