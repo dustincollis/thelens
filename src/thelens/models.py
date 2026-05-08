@@ -13,12 +13,63 @@ Phase 1 only defines `TechnicalAudit` and `RunManifest`. Later phases add
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 StepStatus = Literal["pending", "running", "complete", "failed", "skipped"]
 RunStatus = Literal["pending", "running", "complete", "failed"]
 CrawlerStatus = Literal["allowed", "disallowed", "unknown"]
+
+ClassificationCategory = Literal[
+    "ecommerce",
+    "b2b_saas",
+    "b2c_saas",
+    "publisher",
+    "news",
+    "nonprofit",
+    "government",
+    "healthcare",
+    "education",
+    "financial_services",
+    "professional_services",
+    "agency",
+    "portfolio",
+    "community",
+    "documentation",
+    "marketing_landing",
+    "ecommerce_brand",
+    "marketplace",
+    "other",
+]
+
+EvidentGoal = Literal[
+    "lead_generation",
+    "direct_sale",
+    "signup_or_trial",
+    "education",
+    "brand_awareness",
+    "retention",
+    "fundraising",
+    "recruitment",
+    "support",
+    "other",
+]
+
+BrandRegister = Literal[
+    "formal",
+    "technical",
+    "authoritative",
+    "casual",
+    "conversational",
+    "transactional",
+    "journalistic",
+    "academic",
+]
+
+Confidence = Literal["high", "medium", "low"]
+ExpertiseLevel = Literal["novice", "intermediate", "expert"]
+DecisionAuthority = Literal["researcher", "influencer", "decision_maker", "end_user"]
+TrustPosture = Literal["skeptical", "neutral", "trusting", "urgent"]
 
 
 class RunManifest(BaseModel):
@@ -133,3 +184,94 @@ class TechnicalAudit(BaseModel):
     llms_txt: LlmsTxt
     trust_signals: TrustSignals
     page_size: PageSize
+
+
+# ============================================================================
+# Layer 1: Site classification
+# ============================================================================
+
+
+class ContentMaturity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    has_blog: bool
+    has_documentation: bool
+    has_pricing: bool
+    has_case_studies: bool
+    has_about_page: bool
+    has_team_page: bool
+
+
+class Classification(BaseModel):
+    """Output of step 3 (Layer 1). Site fingerprint that drives downstream personas and queries."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str
+    category: ClassificationCategory
+    category_specifics: str
+    audience_summary: str
+    audience_segments: list[str] = Field(min_length=1, max_length=6)
+    evident_goal: EvidentGoal
+    evident_goal_explanation: str
+    content_maturity: ContentMaturity
+    brand_register: BrandRegister
+    industry: str
+    geography: str | None
+    competitor_examples: list[str] = Field(default_factory=list, max_length=6)
+    confidence: Confidence
+
+
+# ============================================================================
+# Layer 2: Personas
+# ============================================================================
+
+
+class Persona(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    role: str
+    context: str
+    goal: str
+    expertise_level: ExpertiseLevel
+    decision_authority: DecisionAuthority
+    primary_concerns: list[str] = Field(min_length=2, max_length=8)
+    trust_posture: TrustPosture
+    is_llm_lens: bool
+    rationale: str
+
+
+class PersonaSet(BaseModel):
+    """Output of step 4 (Layer 2). 3–5 review personas. Exactly one is the LLM-as-reader lens."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    personas: list[Persona] = Field(min_length=3, max_length=5)
+    generation_notes: str
+
+    @model_validator(mode="after")
+    def _exactly_one_llm_lens(self) -> "PersonaSet":
+        n = sum(1 for p in self.personas if p.is_llm_lens)
+        if n != 1:
+            raise ValueError(
+                f"PersonaSet must contain exactly one persona with is_llm_lens=true; got {n}"
+            )
+        return self
+
+
+# ============================================================================
+# Shared: LLM usage tracking
+# ============================================================================
+
+
+class UsageInfo(BaseModel):
+    """Token counts and cost for a single LLM call."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float

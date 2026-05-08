@@ -1,4 +1,4 @@
-"""Typer CLI entry point. Phase 1 wires `run`, `list`, `reindex`, and `version`."""
+"""Typer CLI entry point. Wires `run`, `list`, `reindex`, and `version`."""
 
 from __future__ import annotations
 
@@ -6,11 +6,17 @@ import asyncio
 from pathlib import Path
 
 import typer
+from dotenv import load_dotenv
 from rich.console import Console
 
-from thelens import __version__
-from thelens.pipeline.run import run_pipeline
-from thelens.storage import list_recent_runs, reindex_from_filesystem
+# Load .env before any imports that read API keys at module level.
+# `override=True` because some host environments (Claude Desktop, certain
+# IDEs) inject empty `*_API_KEY=` into the env, which would otherwise win.
+load_dotenv(override=True)
+
+from thelens import __version__  # noqa: E402
+from thelens.pipeline.run import run_pipeline  # noqa: E402
+from thelens.storage import list_recent_runs, reindex_from_filesystem  # noqa: E402
 
 
 app = typer.Typer(

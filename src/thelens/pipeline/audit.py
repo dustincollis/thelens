@@ -11,13 +11,13 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import httpx
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 
+from thelens.pipeline._extract import extract_visible_text
 from thelens.models import (
     AiCrawlerAccess,
     HtmlStructure,
@@ -68,8 +68,8 @@ async def audit_url(url: str, run_dir: Path) -> TechnicalAudit:
     raw_html = (run_dir / "raw_html.html").read_text(encoding="utf-8")
     rendered_html = (run_dir / "rendered_dom.html").read_text(encoding="utf-8")
 
-    raw_text = _extract_visible_text(raw_html)
-    rendered_text = _extract_visible_text(rendered_html)
+    raw_text = extract_visible_text(raw_html)
+    rendered_text = extract_visible_text(rendered_html)
     soup = BeautifulSoup(rendered_html, "lxml")
 
     robots_text, robots_present = await _fetch_robots(url)
@@ -127,7 +127,7 @@ def _html_structure(soup: BeautifulSoup) -> HtmlStructure:
         aside=len(soup.find_all("aside")),
     )
 
-    text_chars = len(_extract_visible_text(str(soup)))
+    text_chars = len(extract_visible_text(str(soup)))
     html_chars = len(str(soup))
     dom_ratio = round(html_chars / text_chars, 2) if text_chars else 0.0
 
@@ -369,13 +369,6 @@ def _page_size(raw_html: str, rendered_html: str) -> PageSize:
 # ============================================================================
 # Helpers
 # ============================================================================
-
-
-def _extract_visible_text(html: str) -> str:
-    soup = BeautifulSoup(html, "lxml")
-    for tag in soup(["script", "style", "noscript", "nav", "footer"]):
-        tag.decompose()
-    return " ".join(soup.get_text(separator=" ").split())
 
 
 def _root_url(url: str) -> str:
