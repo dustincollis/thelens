@@ -585,12 +585,18 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: upp
     {% for r in persona_reviews %}
     <div class="persona">
       <div class="head">
-        <h3>{{ r.persona_name }}</h3>
+        <h3>{{ r.persona_name }}{% if r.persona_is_llm_lens %} <span class="badge b-neutral" style="font-size: 9px;">LLM lens</span>{% endif %}</h3>
         <div>
           <span class="badge b-{{ 'ok' if r.persona_satisfaction_score >= 7 else ('warn' if r.persona_satisfaction_score >= 5 else 'bad') }}">{{ r.persona_satisfaction_score }}/10</span>
         </div>
       </div>
       <div class="role">{{ r.persona_role }}</div>
+      {% if r.persona_goal %}
+      <div style="font-size: 13px; margin: 8px 0 4px;"><strong>Their goal on this site:</strong> {{ r.persona_goal }}</div>
+      {% endif %}
+      {% if r.persona_rationale %}
+      <div style="font-size: 12px; color: var(--muted); margin-bottom: 10px;"><strong>Why this lens:</strong> {{ r.persona_rationale }}</div>
+      {% endif %}
       <div class="quote">"{{ r.quotable_observation }}"</div>
       <div><strong>Goal outcome:</strong> {{ r.goal_outcome.replace('_', ' ') }} — {{ r.goal_outcome_explanation }}</div>
       <div class="what">

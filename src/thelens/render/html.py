@@ -73,6 +73,8 @@ def _load_artifacts(run_dir: Path) -> dict[str, object]:
     out["page_aware"] = page_aware
     out["page_blind"] = page_blind
 
+    # Load persona reviews and join with personas.json so the report can
+    # show "why this persona was generated" alongside their review output.
     persona_reviews: list[dict] = []
     review_dir = run_dir / "persona_reviews"
     if review_dir.exists():
@@ -80,6 +82,18 @@ def _load_artifacts(run_dir: Path) -> dict[str, object]:
             data = _read_json(f)
             if data:
                 persona_reviews.append(data)
+
+    personas_data = out.get("personas")
+    if isinstance(personas_data, dict):
+        by_name = {p.get("name"): p for p in personas_data.get("personas", [])}
+        for review in persona_reviews:
+            persona = by_name.get(review.get("persona_name"))
+            if persona:
+                review["persona_context"] = persona.get("context", "")
+                review["persona_goal"] = persona.get("goal", "")
+                review["persona_rationale"] = persona.get("rationale", "")
+                review["persona_primary_concerns"] = persona.get("primary_concerns", [])
+                review["persona_is_llm_lens"] = persona.get("is_llm_lens", False)
     out["persona_reviews"] = persona_reviews
 
     return out

@@ -21,6 +21,15 @@ Below are all the inputs from one site-review run. The site was crawled to a dep
 
 Site URL: {{ site_url }}
 
+## How to read the technical audit
+
+Be precise about what each metric does and does not mean. In particular:
+
+- **`render_mode_diff.js_trapped_pct`** measures the share of visible page text that exists only after JavaScript execution (i.e., not present in the raw HTML response). This is a real signal for **non-JS crawlers** — RSS readers, traditional search-engine crawlers, AI bots that don't execute JS (e.g., GPTBot, ClaudeBot historically). However, **modern AI assistants with rendering tools** (browsing-mode ChatGPT, Perplexity, Gemini's deep-research, Claude with web search) typically DO execute JS and see this content fine. Do NOT claim JS-trapped content is "invisible to AI" without that nuance. The accurate framing is: "X% of visible content is hidden from non-JS crawlers" or "X% requires JS execution to extract."
+- **`pages_missing_*` aggregates** count pages by absence of a specific element. A high count is a flag for inconsistency, not necessarily for absence — a /careers page reasonably has no privacy link if a global one exists in the footer.
+- **`json_ld_blocks: 0` and `missing_recommended_schemas`** are about machine-readability for crawlers and AI extractors. Even with rendering, schema markup substantially improves citation accuracy.
+- **`alt_text_coverage_pct`** is computed only over `<img>` tags. Sites that use SVG or CSS background images may show a low count without it being a real accessibility issue.
+
 ## Technical audit (homepage detail + cross-page aggregates)
 
 ```json
