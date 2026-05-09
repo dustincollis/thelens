@@ -5,6 +5,12 @@ with a list of recent runs below the form.
 
 The UI is a thin wrapper. It calls the same `run_pipeline()` function the
 CLI calls; no business logic lives here.
+
+Note on report links: browsers block `file://` links opened from `http://`
+pages, so plain Markdown links to `report.html` silently do nothing. We
+use buttons that call `webbrowser.open()` server-side instead, which
+launches the OS default browser directly (works because Streamlit's
+"server" is the user's own machine in a personal-use app).
 """
 
 from __future__ import annotations
@@ -12,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 
@@ -108,9 +115,9 @@ if submitted:
             f"Running audit on {url}. This takes 2–5 minutes — please leave the tab open."
         )
         try:
-            with st.spinner("Auditing… (fetch → audit → classify → personas → "
-                            "page-aware → page-blind → verification → "
-                            "persona reviews → synthesis → report)"):
+            with st.spinner("Auditing — fetch, audit, classify, personas, "
+                            "page-aware, page-blind, verification, "
+                            "persona reviews, synthesis, report…"):
                 run_id, run_dir, log = _run_audit_blocking(url)
         except Exception as exc:
             info.empty()
@@ -120,8 +127,14 @@ if submitted:
         info.empty()
         report_path = run_dir / "report.html"
         st.success(f"Done — {run_id}")
+
+        # Auto-open the fresh report in the user's default browser.
         if report_path.exists():
-            st.markdown(f"[**Open the HTML report ↗**]({report_path.as_uri()})")
+            webbrowser.open(report_path.as_uri())
+            st.caption("The report should have opened in a new browser tab.")
+            if st.button("Open report again", key=f"reopen_{run_id}"):
+                webbrowser.open(report_path.as_uri())
+            st.code(str(report_path), language="text")
         with st.expander("Run log"):
             st.code(log or "(no log)", language="text")
 
@@ -163,6 +176,7 @@ else:
             cols[2].caption(f"${r.actual_cost_usd:.2f}")
 
         if report.exists():
-            cols[3].markdown(f"[Open report ↗]({report.as_uri()})")
+            if cols[3].button("Open ↗", key=f"open_{r.run_id}"):
+                webbrowser.open(report.as_uri())
         else:
             cols[3].caption("no report")
