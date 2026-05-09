@@ -7,6 +7,11 @@ as that persona and review the page. Output is one
 Sequential rather than parallel: with one synthesis-grade model and 3-5
 personas this is ~30s total, and serializing keeps us comfortably within
 provider rate limits.
+
+Prompt caching: the rendered user prompt is split on a `<!-- CACHE_BREAK -->`
+marker so the page-text-bearing prefix is sent as a cached block. With 5
+personas in a row, calls 2-5 read the cached prefix at 0.1x the per-token
+cost, saving ~30% on the persona-reviews step.
 """
 
 from __future__ import annotations
@@ -24,6 +29,20 @@ from thelens.pipeline._extract import extract_title, extract_visible_text
 
 
 _PAGE_TEXT_CAP = 100_000
+_CACHE_BREAK = "<!-- CACHE_BREAK -->"
+
+
+def _split_on_cache_break(rendered: str) -> tuple[str | None, str]:
+    """Split a rendered prompt into (cached_prefix, remainder).
+
+    Marker convention: a single `<!-- CACHE_BREAK -->` line in the prompt
+    template separates the cacheable preamble from the per-call content.
+    Returns (None, rendered) if the marker is absent.
+    """
+    if _CACHE_BREAK not in rendered:
+        return None, rendered
+    cached, _, rest = rendered.partition(_CACHE_BREAK)
+    return cached.strip(), rest.strip()
 
 
 async def review_one_persona(
@@ -44,15 +63,17 @@ async def review_one_persona(
         page_title=page_title,
         page_text=page_text,
     )
+    cached_prefix, user_rest = _split_on_cache_break(user)
 
     client = build_client(synthesis.provider, synthesis.model)
     parsed, usage = await with_retry(
         lambda: client.complete(
             system=system,
-            user=user,
+            user=user_rest,
             response_format=PersonaReview,
             max_tokens=prompt.default_max_tokens,
             temperature=prompt.default_temperature,
+            cached_user_prefix=cached_prefix,
         ),
         op_name=f"persona_review/{persona_index}",
     )
@@ -77,10 +98,15 @@ async def run_persona_reviews(
         )
         target = run_dir / "persona_reviews" / f"persona_{i}.json"
         target.write_text(review.model_dump_json(indent=2), encoding="utf-8")
+        cache_note = ""
+        if usage.cache_read_tokens:
+            cache_note = f" [dim](cached {usage.cache_read_tokens} tok)[/]"
+        elif usage.cache_creation_tokens:
+            cache_note = f" [dim](cache+{usage.cache_creation_tokens} tok)[/]"
         console.print(
             f"    persona_review/{i} ({persona.name}) [green]ok[/] "
             f"[dim](goal={review.goal_outcome}, "
-            f"score={review.persona_satisfaction_score})[/]"
+            f"score={review.persona_satisfaction_score})[/]{cache_note}"
         )
         usages.append(usage)
     return usages

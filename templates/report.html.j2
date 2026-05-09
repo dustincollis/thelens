@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Lens — {{ manifest.url }}</title>
+<style>
+:root {
+  --bg: #fafafa;
+  --card: #ffffff;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --text: #111827;
+  --muted: #6b7280;
+  --accent: #2563eb;
+  --green: #16a34a;
+  --yellow: #ca8a04;
+  --orange: #ea580c;
+  --red: #dc2626;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--bg);
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.9em; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+/* Top header */
+header.top {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 32px 0;
+}
+header.top .meta { color: var(--muted); font-size: 14px; margin-bottom: 6px; }
+header.top h1 {
+  margin: 0 0 4px 0;
+  font-size: 28px;
+  font-weight: 600;
+  word-break: break-all;
+}
+header.top .subtitle { color: var(--muted); font-size: 15px; }
+.header-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 32px;
+  align-items: center;
+}
+
+/* Score circle */
+.score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 140px; height: 140px;
+  border-radius: 50%;
+  border: 6px solid var(--border-strong);
+  background: var(--card);
+}
+.score .num { font-size: 42px; font-weight: 600; line-height: 1; }
+.score .lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+.score.s-ok { border-color: var(--green); }
+.score.s-mid { border-color: var(--yellow); }
+.score.s-bad { border-color: var(--orange); }
+.score.s-poor { border-color: var(--red); }
+
+/* Sticky TOC */
+nav.toc {
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  z-index: 10;
+  font-size: 13px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+nav.toc .wrap { padding: 10px 24px; }
+nav.toc a {
+  display: inline-block;
+  padding: 4px 10px;
+  margin-right: 4px;
+  color: var(--muted);
+  border-radius: 4px;
+}
+nav.toc a:hover { background: var(--bg); color: var(--text); text-decoration: none; }
+
+/* Sections / cards */
+main { padding: 32px 0 64px; }
+section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px 28px;
+  margin-bottom: 20px;
+}
+section h2 {
+  margin: 0 0 16px 0;
+  font-size: 20px;
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+section h2 .layer-tag {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  font-weight: 500;
+  background: var(--bg);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+section h3 { margin: 20px 0 8px; font-size: 16px; font-weight: 600; }
+section p:first-of-type { margin-top: 0; }
+
+/* Executive summary */
+.exec ul { list-style: none; padding: 0; margin: 0; }
+.exec li {
+  padding: 10px 0 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 12px;
+}
+.exec li:last-child { border-bottom: 0; }
+.exec li::before {
+  content: "→";
+  color: var(--accent);
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+.kv { display: grid; grid-template-columns: 200px 1fr; gap: 6px 18px; font-size: 14px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; }
+
+/* Score bars */
+.bars { display: flex; flex-direction: column; gap: 12px; }
+.bar-row { display: grid; grid-template-columns: 160px 1fr 50px; gap: 12px; align-items: center; font-size: 14px; }
+.bar-row .lbl { color: var(--muted); }
+.bar-row .num { text-align: right; font-weight: 600; }
+.bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+.bar > span { display: block; height: 100%; }
+.bar > span.s-ok { background: var(--green); }
+.bar > span.s-mid { background: var(--yellow); }
+.bar > span.s-bad { background: var(--orange); }
+.bar > span.s-poor { background: var(--red); }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: white;
+}
+.badge.b-critical { background: var(--red); }
+.badge.b-high { background: var(--orange); }
+.badge.b-medium { background: var(--yellow); color: #422; }
+.badge.b-low { background: var(--green); }
+.badge.b-ok { background: var(--green); }
+.badge.b-warn { background: var(--yellow); color: #422; }
+.badge.b-bad { background: var(--red); }
+.badge.b-neutral { background: var(--muted); }
+
+/* Persona cards */
+.personas { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.persona {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  background: var(--bg);
+}
+.persona .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.persona .head h3 { margin: 0; font-size: 15px; }
+.persona .role { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+.persona .quote {
+  font-style: italic;
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+  margin: 8px 0 12px;
+  color: var(--text);
+  font-size: 14px;
+}
+.persona ul { padding-left: 18px; margin: 4px 0 8px; }
+.persona li { font-size: 13px; }
+.persona .what { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.persona .what h4 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 0 0 4px; letter-spacing: 0.05em; }
+
+/* Findings */
+.findings .item {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  background: var(--bg);
+}
+.findings .item .meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.findings .perspectives { margin-top: 8px; padding-left: 14px; border-left: 2px solid var(--border-strong); }
+.findings .perspectives .p { font-size: 13px; margin: 6px 0; }
+.findings .perspectives .p .src { color: var(--muted); font-weight: 600; }
+
+/* Identity clarity 3-col */
+.identity { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.identity .col {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px;
+  background: var(--bg);
+}
+.identity .col h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+
+/* Page-blind queries */
+.queries .q {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  background: var(--bg);
+}
+.queries .q .qtext { font-weight: 500; margin-bottom: 6px; }
+.queries .q .response { font-size: 13px; color: var(--muted); margin: 8px 0; line-height: 1.5; max-height: 6.5em; overflow: hidden; position: relative; }
+.queries .q .response.expanded { max-height: none; }
+
+/* Screenshot */
+.screenshot {
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: block;
+}
+
+/* Methodology */
+.method { font-size: 14px; color: var(--muted); }
+.method ol { padding-left: 22px; }
+
+@media (max-width: 720px) {
+  .header-grid { grid-template-columns: 1fr; }
+  .score { margin: 0 auto; }
+  .identity { grid-template-columns: 1fr; }
+  .persona .what { grid-template-columns: 1fr; }
+  .kv { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+{# ---------- Helper macros ---------- #}
+{% macro score_class(n) -%}
+  {% if n >= 80 %}s-ok{% elif n >= 60 %}s-mid{% elif n >= 40 %}s-bad{% else %}s-poor{% endif %}
+{%- endmacro %}
+
+{% macro impact_badge(level) -%}
+  <span class="badge b-{{ level }}">{{ level }}</span>
+{%- endmacro %}
+
+{# ---------- Header ---------- #}
+<header class="top">
+  <div class="wrap header-grid">
+    <div>
+      <div class="meta">
+        Run {{ manifest.run_id }} · started {{ manifest.started_at[:10] }}
+        {% if manifest.actual_cost_usd %} · cost ${{ '%.2f' % manifest.actual_cost_usd }}{% endif %}
+      </div>
+      <h1>{{ manifest.url }}</h1>
+      {% if classification %}
+        <div class="subtitle">{{ classification.category_specifics }}</div>
+      {% endif %}
+    </div>
+    {% if synthesis %}
+      <div class="score {{ score_class(synthesis.composite_score) }}">
+        <div class="num">{{ synthesis.composite_score }}</div>
+        <div class="lbl">/ 100</div>
+      </div>
+    {% endif %}
+  </div>
+</header>
+
+{# ---------- Sticky TOC ---------- #}
+<nav class="toc">
+  <div class="wrap">
+    <a href="#summary">Summary</a>
+    <a href="#fingerprint">Fingerprint</a>
+    <a href="#scorecard">Scorecard</a>
+    <a href="#audit">Technical</a>
+    <a href="#identity">Identity</a>
+    <a href="#page-aware">Page-aware</a>
+    <a href="#page-blind">Page-blind</a>
+    <a href="#personas">Personas</a>
+    <a href="#convergence">Convergence</a>
+    <a href="#divergence">Divergence</a>
+    <a href="#recs">Recommendations</a>
+    <a href="#method">Methodology</a>
+  </div>
+</nav>
+
+<main>
+<div class="wrap">
+
+{# ---------- 1. Executive summary ---------- #}
+{% if synthesis %}
+<section id="summary" class="exec">
+  <h2>Executive summary <span class="layer-tag">Layer 5</span></h2>
+  <ul>
+    {% for item in synthesis.executive_summary %}
+      <li>{{ item }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{# ---------- 2. Site fingerprint ---------- #}
+{% if classification %}
+<section id="fingerprint">
+  <h2>Site fingerprint <span class="layer-tag">Layer 1</span></h2>
+  <dl class="kv">
+    <dt>Category</dt><dd>{{ classification.category }}</dd>
+    <dt>Industry</dt><dd>{{ classification.industry }}</dd>
+    <dt>Geography</dt><dd>{{ classification.geography or '—' }}</dd>
+    <dt>Brand register</dt><dd>{{ classification.brand_register }}</dd>
+    <dt>Evident goal</dt><dd>{{ classification.evident_goal }} — {{ classification.evident_goal_explanation }}</dd>
+    <dt>Audience</dt><dd>{{ classification.audience_summary }}</dd>
+    <dt>Audience segments</dt><dd>
+      <ul style="margin:0; padding-left:18px;">
+      {% for s in classification.audience_segments %}<li>{{ s }}</li>{% endfor %}
+      </ul>
+    </dd>
+    {% if classification.competitor_examples %}
+    <dt>Competitors (inferred)</dt><dd>{{ classification.competitor_examples | join(', ') }}</dd>
+    {% endif %}
+    <dt>Confidence</dt><dd>{{ classification.confidence }}</dd>
+  </dl>
+</section>
+{% endif %}
+
+{# ---------- 3. Scorecard ---------- #}
+{% if synthesis and synthesis.score_breakdown %}
+<section id="scorecard">
+  <h2>Scorecard <span class="layer-tag">Layer 5</span></h2>
+  <div class="bars">
+    {% for k, v in synthesis.score_breakdown.items() %}
+      <div class="bar-row">
+        <div class="lbl">{{ k.replace('_', ' ') }}</div>
+        <div class="bar"><span class="{{ score_class(v) }}" style="width: {{ v }}%"></span></div>
+        <div class="num">{{ v }}</div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# ---------- 4. Technical audit ---------- #}
+{% if audit %}
+<section id="audit">
+  <h2>Technical audit</h2>
+  <dl class="kv">
+    <dt>Render-mode JS-trapped</dt>
+    <dd>{{ audit.render_mode_diff.js_trapped_pct }}% (raw {{ audit.render_mode_diff.raw_text_chars }} chars → rendered {{ audit.render_mode_diff.rendered_text_chars }} chars)</dd>
+
+    <dt>HTTPS</dt><dd>{% if audit.trust_signals.https %}<span class="badge b-ok">yes</span>{% else %}<span class="badge b-bad">no</span>{% endif %}</dd>
+    <dt>H1 count</dt><dd>{{ audit.html_structure.h1_count }}{% if audit.html_structure.heading_hierarchy_violations %} <span class="badge b-warn">{{ audit.html_structure.heading_hierarchy_violations }} hierarchy violations</span>{% endif %}</dd>
+    <dt>Image alt coverage</dt><dd>{{ audit.html_structure.alt_text_coverage_pct }}% ({{ audit.html_structure.images_missing_alt }}/{{ audit.html_structure.image_count }} images missing alt)</dd>
+    <dt>Low-quality link text</dt><dd>{{ audit.html_structure.low_quality_link_text_count }} occurrences</dd>
+    <dt>JSON-LD blocks</dt><dd>{{ audit.structured_data.json_ld_blocks }} ({{ audit.structured_data.json_ld_types | join(', ') if audit.structured_data.json_ld_types else 'none' }}){% if audit.structured_data.missing_recommended_schemas %} · missing: {{ audit.structured_data.missing_recommended_schemas | join(', ') }}{% endif %}</dd>
+    <dt>Open Graph</dt><dd>{{ audit.structured_data.open_graph | length }} tags{% if audit.structured_data.twitter_card %} · twitter card present{% endif %}</dd>
+    <dt>llms.txt</dt><dd>{% if audit.llms_txt.present %}<span class="badge b-ok">present</span> ({{ audit.llms_txt.size_bytes }} bytes){% else %}<span class="badge b-warn">missing</span>{% endif %}</dd>
+    <dt>Trust signals</dt><dd>
+      contact {{ '✓' if audit.trust_signals.contact_info_present else '✗' }} ·
+      privacy {{ '✓' if audit.trust_signals.privacy_policy_link else '✗' }} ·
+      author byline {{ '✓' if audit.trust_signals.author_byline else '✗' }} ·
+      last-updated {{ '✓' if audit.trust_signals.last_updated_date else '✗' }}
+    </dd>
+    <dt>AI crawler access</dt><dd>
+      {% for bot, status in audit.ai_crawler_access.crawlers.items() %}
+        <span class="badge b-{{ 'ok' if status == 'allowed' else 'bad' }}" style="margin: 1px 2px;">{{ bot }}</span>
+      {% endfor %}
+    </dd>
+  </dl>
+</section>
+{% endif %}
+
+{# ---------- 5. Identity clarity 3-col ---------- #}
+{% if classification or page_aware or page_blind %}
+<section id="identity">
+  <h2>Identity clarity</h2>
+  <p style="color: var(--muted); margin-bottom: 16px;">Three independent views of the site's identity. The more these align, the clearer the page communicates.</p>
+  <div class="identity">
+    <div class="col">
+      <h3>What the site says</h3>
+      {% if classification %}
+        <p>{{ classification.category_specifics }}</p>
+      {% else %}
+        <p style="color: var(--muted)">—</p>
+      {% endif %}
+    </div>
+    <div class="col">
+      <h3>What AI sees on the page</h3>
+      {% set first_pa = (page_aware.values() | list | first) if page_aware else None %}
+      {% if first_pa and first_pa.answers and first_pa.answers.one_sentence_summary %}
+        <p>{{ first_pa.answers.one_sentence_summary }}</p>
+      {% else %}
+        <p style="color: var(--muted)">—</p>
+      {% endif %}
+    </div>
+    <div class="col">
+      <h3>How AI surfaces the brand unprompted</h3>
+      {% if page_blind %}
+        {% set first_pb = (page_blind.values() | list | first) %}
+        {% set total = first_pb.query_results | length %}
+        {% set mentioned = first_pb.query_results | selectattr('brand_mentioned') | list | length %}
+        <p><strong>{{ mentioned }}/{{ total }}</strong> category-level queries mentioned the brand without seeing the page.</p>
+      {% else %}
+        <p style="color: var(--muted)">—</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{# ---------- 6. Page-aware matrix ---------- #}
+{% if page_aware %}
+<section id="page-aware">
+  <h2>Page-aware analysis <span class="layer-tag">Layer 3a</span></h2>
+  {% for provider, response in page_aware.items() %}
+    <h3>{{ provider }} <span style="color: var(--muted); font-weight: 400; font-size: 13px;">{{ response.model }}</span>
+      {% if response.hallucination_flags %}
+        · <span class="badge b-{{ 'ok' if response.hallucination_flags.overall_support_level in ['fully_supported','mostly_supported'] else 'warn' }}">{{ response.hallucination_flags.overall_support_level }}</span>
+        {% if response.hallucination_flags.hallucinations %}
+          · <span class="badge b-bad">{{ response.hallucination_flags.hallucinations | length }} hallucinations</span>
+        {% endif %}
+      {% endif %}
+    </h3>
+    <table>
+      <thead><tr><th style="width: 30%;">Question</th><th>Answer</th></tr></thead>
+      <tbody>
+      {% for q in questions %}
+        {% set ans = response.answers.get(q.id) %}
+        <tr>
+          <td><strong>{{ q.prompt }}</strong><div style="font-size: 12px; color: var(--muted); margin-top: 4px;">{{ q.id }}</div></td>
+          <td>
+            {% if ans is none %}
+              <span style="color: var(--muted)">no answer</span>
+            {% elif q.type == 'text' %}
+              {{ ans }}
+            {% elif q.type == 'list' %}
+              <ul style="margin: 0; padding-left: 18px;">
+                {% for item in ans %}<li>{{ item }}</li>{% endfor %}
+              </ul>
+            {% elif q.type == 'score' %}
+              <strong>{{ ans.score }}/10</strong> — {{ ans.justification }}
+            {% elif q.type == 'boolean_with_explanation' %}
+              <strong>{{ 'Yes' if ans.value else 'No' }}</strong> — {{ ans.explanation }}
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ---------- 7. Page-blind brand visibility ---------- #}
+{% if page_blind %}
+<section id="page-blind">
+  <h2>Page-blind brand visibility <span class="layer-tag">Layer 3b</span></h2>
+  <p style="color: var(--muted); margin-bottom: 16px;">Each query was asked of the model with no knowledge of the page. We then checked whether the brand surfaced unprompted.</p>
+  {% for provider, response in page_blind.items() %}
+    {% set total = response.query_results | length %}
+    {% set mentioned = response.query_results | selectattr('brand_mentioned') | list | length %}
+    <h3>{{ provider }} <span style="color: var(--muted); font-weight: 400; font-size: 13px;">{{ response.model }}</span>
+      · <span class="badge b-{{ 'ok' if mentioned == total else ('warn' if mentioned >= total // 2 else 'bad') }}">{{ mentioned }}/{{ total }} mentioned</span>
+    </h3>
+    <div class="queries">
+      {% for r in response.query_results %}
+      <div class="q">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px;">
+          <div class="qtext">{{ r.query_text }}</div>
+          <div>
+            {% if r.brand_mentioned %}
+              <span class="badge b-ok">mentioned{% if r.mention_position %} · #{{ r.mention_position }}{% endif %}</span>
+            {% else %}
+              <span class="badge b-bad">not mentioned</span>
+            {% endif %}
+          </div>
+        </div>
+        {% if r.competitors_mentioned %}
+          <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">competitors named: {{ r.competitors_mentioned | join(', ') }}</div>
+        {% endif %}
+        <details style="margin-top: 8px;">
+          <summary style="font-size: 12px; color: var(--muted); cursor: pointer;">view full response</summary>
+          <div class="response expanded" style="margin-top: 8px; white-space: pre-wrap;">{{ r.response_text }}</div>
+        </details>
+      </div>
+      {% endfor %}
+    </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ---------- 8. Persona reviews ---------- #}
+{% if persona_reviews %}
+<section id="personas">
+  <h2>Persona reviews <span class="layer-tag">Layer 4</span></h2>
+  <div class="personas">
+    {% for r in persona_reviews %}
+    <div class="persona">
+      <div class="head">
+        <h3>{{ r.persona_name }}</h3>
+        <div>
+          <span class="badge b-{{ 'ok' if r.persona_satisfaction_score >= 7 else ('warn' if r.persona_satisfaction_score >= 5 else 'bad') }}">{{ r.persona_satisfaction_score }}/10</span>
+        </div>
+      </div>
+      <div class="role">{{ r.persona_role }}</div>
+      <div class="quote">"{{ r.quotable_observation }}"</div>
+      <div><strong>Goal outcome:</strong> {{ r.goal_outcome.replace('_', ' ') }} — {{ r.goal_outcome_explanation }}</div>
+      <div class="what">
+        <div>
+          <h4>What worked</h4>
+          <ul>{% for w in r.what_worked %}<li>{{ w }}</li>{% endfor %}</ul>
+        </div>
+        <div>
+          <h4>What failed</h4>
+          <ul>{% for w in r.what_failed %}<li>{{ w }}</li>{% endfor %}</ul>
+        </div>
+      </div>
+      <div style="font-size: 13px; color: var(--muted); margin-top: 8px;"><strong>Next:</strong> {{ r.next_action.replace('_', ' ') }} — {{ r.next_action_explanation }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# ---------- 9. Convergence findings ---------- #}
+{% if synthesis and synthesis.convergence_findings %}
+<section id="convergence" class="findings">
+  <h2>Convergence findings <span class="layer-tag">Layer 5</span></h2>
+  <p style="color: var(--muted); margin-bottom: 12px;">Multiple lenses agree. Strong signal.</p>
+  {% for f in synthesis.convergence_findings %}
+    <div class="item">
+      <div>{{ f.finding }}</div>
+      <div class="meta">
+        {{ impact_badge(f.impact) }}
+        <span>confidence: {{ f.confidence }}</span>
+        <span>· sources: {{ f.sources | join(', ') }}</span>
+      </div>
+    </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ---------- 10. Divergence findings ---------- #}
+{% if synthesis and synthesis.divergence_findings %}
+<section id="divergence" class="findings">
+  <h2>Divergence findings <span class="layer-tag">Layer 5</span></h2>
+  <p style="color: var(--muted); margin-bottom: 12px;">Lenses disagree. Worth understanding which is right.</p>
+  {% for f in synthesis.divergence_findings %}
+    <div class="item">
+      <div><strong>{{ f.finding }}</strong></div>
+      <div class="perspectives">
+        {% for p in f.perspectives %}
+          <div class="p"><span class="src">{{ p.source }}:</span> {{ p.view }}</div>
+        {% endfor %}
+      </div>
+      <div class="meta"><strong>Likely:</strong> {{ f.likely_resolution }}</div>
+    </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ---------- 11. Recommendations ---------- #}
+{% if synthesis and synthesis.recommendations %}
+<section id="recs" class="findings">
+  <h2>Prioritized recommendations <span class="layer-tag">Layer 5</span></h2>
+  {% for r in synthesis.recommendations %}
+    <div class="item">
+      <div style="display: flex; justify-content: space-between; gap: 12px; align-items: baseline;">
+        <div><strong>{{ r.title }}</strong></div>
+        <div>
+          {{ impact_badge(r.severity) }}
+          <span class="badge b-neutral">effort: {{ r.effort }}</span>
+        </div>
+      </div>
+      <div style="margin-top: 6px; font-size: 14px;">{{ r.rationale }}</div>
+      <div class="meta"><strong>Expected impact:</strong> {{ r.expected_impact }}</div>
+    </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ---------- 12. Methodology ---------- #}
+<section id="method" class="method">
+  <h2>Methodology</h2>
+  <ol>
+    <li><strong>Fetch.</strong> Raw HTML via httpx with browser-like headers, plus JS-rendered DOM via Playwright Chromium (waits for networkidle). Both saved to the run folder.</li>
+    <li><strong>Audit.</strong> Pure-Python structural and technical checks: render-mode diff, heading hierarchy, alt-text coverage, JSON-LD validation, AI crawler robots.txt access, llms.txt presence, trust signals, page size.</li>
+    <li><strong>Classify.</strong> One LLM call produces the site fingerprint (category, audience, goal, register, industry, geography, competitors).</li>
+    <li><strong>Personas.</strong> One LLM call generates {{ persona_reviews | length }} review personas based on the fingerprint, including one LLM-as-reader lens.</li>
+    <li><strong>Page-aware (Layer 3a).</strong> Each enabled provider answers a {{ questions | length }}-question structured set with the page text in the prompt.</li>
+    <li><strong>Page-blind (Layer 3b).</strong> One synthesis call generates first-person seeker queries from the fingerprint; each query is then sent to each provider <em>without</em> the page, and the response is post-processed to detect whether the brand surfaced.</li>
+    <li><strong>Verification.</strong> A separate pass fact-checks each page-aware response against the page text. Only unsupported factual claims are flagged as hallucinations; opinions and inferences are not.</li>
+    <li><strong>Persona reviews.</strong> Each persona reviews the page in their voice, returning a structured score, what-worked / what-failed, and an in-character quotable observation. Prompt caching is used here: page text is sent as a cached prefix, so calls 2-N reuse the cache.</li>
+    <li><strong>Synthesis.</strong> One final call takes every prior artifact and produces the executive summary, score breakdown, convergence and divergence findings, and prioritized recommendations on this page.</li>
+  </ol>
+  <p style="margin-top: 16px;">Generated {{ rendered_at }} by The Lens.</p>
+</section>
+
+</div>
+</main>
+
+</body>
+</html>

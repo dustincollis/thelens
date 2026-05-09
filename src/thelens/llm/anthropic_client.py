@@ -5,6 +5,13 @@ synthetic tool is registered whose `input_schema` is the JSON Schema of the
 `response_format` Pydantic model, and the model is forced to call it via
 `tool_choice`. Output comes back as the tool's `input` dict, which we then
 validate.
+
+Prompt caching: when a caller passes `cached_user_prefix`, that text is
+sent as a separate user content block with `cache_control: ephemeral`.
+Useful for steps that make many sequential calls reusing the same large
+preamble (e.g. persona reviews — same page text across N personas). The
+returned `UsageInfo` populates `cache_creation_tokens` / `cache_read_tokens`
+and `cost_usd` includes Anthropic's cache surcharges.
 """
 
 from __future__ import annotations
@@ -17,6 +24,7 @@ from pydantic import BaseModel, ValidationError
 from thelens.llm.base import LLMError
 from thelens.models import UsageInfo
 
+
 def _tool_name_for(model_cls: type) -> str:
     return f"submit_{model_cls.__name__.lower()}"
 
@@ -28,6 +36,10 @@ _PRICING_PER_M_TOKENS: dict[str, dict[str, float]] = {
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
     "claude-haiku-4-5": {"input": 1.0, "output": 5.0},
 }
+
+# Anthropic prompt-cache pricing multipliers, applied to base input rate.
+_CACHE_WRITE_MULTIPLIER = 1.25
+_CACHE_READ_MULTIPLIER = 0.1
 
 
 class AnthropicClient:
@@ -58,6 +70,7 @@ class AnthropicClient:
         max_tokens: int = 2048,
         temperature: float = 0.3,
         disable_web_search: bool = False,  # Anthropic default: no search; flag is no-op here.
+        cached_user_prefix: str | None = None,
     ) -> tuple[BaseModel, UsageInfo]:
         tool_name = _tool_name_for(response_format)
         tool = {
@@ -74,11 +87,10 @@ class AnthropicClient:
             "model": self.model,
             "max_tokens": max_tokens,
             "system": system,
-            "messages": [{"role": "user", "content": user}],
+            "messages": _build_messages(user, cached_user_prefix),
             "tools": [tool],
             "tool_choice": {"type": "tool", "name": tool_name},
         }
-        # Opus 4.7+ rejects `temperature`. Older models still accept it.
         if not _model_rejects_temperature(self.model):
             request_kwargs["temperature"] = temperature
 
@@ -104,17 +116,7 @@ class AnthropicClient:
                 f"tool input did not match {response_format.__name__}:\n{exc}",
             ) from exc
 
-        usage = UsageInfo(
-            provider=self.provider_name,
-            model=self.model,
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
-            cost_usd=_compute_cost(
-                self.model, response.usage.input_tokens, response.usage.output_tokens
-            ),
-        )
-        return parsed, usage
-
+        return parsed, _build_usage(self.provider_name, self.model, response)
 
     async def complete_text(
         self,
@@ -123,13 +125,13 @@ class AnthropicClient:
         max_tokens: int = 2048,
         temperature: float = 0.3,
         disable_web_search: bool = False,
+        cached_user_prefix: str | None = None,
     ) -> tuple[str, UsageInfo]:
-        """Free-form text response (no tool use, no schema)."""
         request_kwargs: dict[str, object] = {
             "model": self.model,
             "max_tokens": max_tokens,
             "system": system,
-            "messages": [{"role": "user", "content": user}],
+            "messages": _build_messages(user, cached_user_prefix),
         }
         if not _model_rejects_temperature(self.model):
             request_kwargs["temperature"] = temperature
@@ -140,16 +142,44 @@ class AnthropicClient:
             raise LLMError(self.provider_name, self.model, f"API call failed: {exc}") from exc
 
         text = _extract_text_blocks(response)
-        usage = UsageInfo(
-            provider=self.provider_name,
-            model=self.model,
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
-            cost_usd=_compute_cost(
-                self.model, response.usage.input_tokens, response.usage.output_tokens
-            ),
-        )
-        return text, usage
+        return text, _build_usage(self.provider_name, self.model, response)
+
+
+def _build_messages(user: str, cached_user_prefix: str | None) -> list[dict]:
+    """Construct the messages array, adding a cached prefix block if given."""
+    if cached_user_prefix is None:
+        return [{"role": "user", "content": user}]
+    return [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": cached_user_prefix,
+                    "cache_control": {"type": "ephemeral"},
+                },
+                {"type": "text", "text": user},
+            ],
+        }
+    ]
+
+
+def _build_usage(provider: str, model: str, response: object) -> UsageInfo:
+    """Read token counts from the SDK response, including cache fields."""
+    u = response.usage  # type: ignore[attr-defined]
+    cache_create = int(getattr(u, "cache_creation_input_tokens", 0) or 0)
+    cache_read = int(getattr(u, "cache_read_input_tokens", 0) or 0)
+    return UsageInfo(
+        provider=provider,
+        model=model,
+        input_tokens=u.input_tokens,
+        output_tokens=u.output_tokens,
+        cost_usd=_compute_cost(
+            model, u.input_tokens, u.output_tokens, cache_create, cache_read
+        ),
+        cache_creation_tokens=cache_create,
+        cache_read_tokens=cache_read,
+    )
 
 
 def _extract_text_blocks(response: object) -> str:
@@ -195,8 +225,20 @@ def _model_rejects_temperature(model: str) -> bool:
     return model in _MODELS_WITHOUT_TEMPERATURE
 
 
-def _compute_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+def _compute_cost(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_creation_tokens: int = 0,
+    cache_read_tokens: int = 0,
+) -> float:
     p = _PRICING_PER_M_TOKENS.get(model)
     if not p:
         return 0.0
-    return (input_tokens * p["input"] + output_tokens * p["output"]) / 1_000_000
+    cost = (
+        input_tokens * p["input"]
+        + output_tokens * p["output"]
+        + cache_creation_tokens * p["input"] * _CACHE_WRITE_MULTIPLIER
+        + cache_read_tokens * p["input"] * _CACHE_READ_MULTIPLIER
+    )
+    return cost / 1_000_000

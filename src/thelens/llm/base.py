@@ -47,6 +47,7 @@ class LLMClient(Protocol):
         max_tokens: int = 2048,
         temperature: float = 0.3,
         disable_web_search: bool = False,
+        cached_user_prefix: str | None = None,
     ) -> tuple[BaseModel, UsageInfo]: ...
 
     async def complete_text(
@@ -56,9 +57,17 @@ class LLMClient(Protocol):
         max_tokens: int = 2048,
         temperature: float = 0.3,
         disable_web_search: bool = False,
+        cached_user_prefix: str | None = None,
     ) -> tuple[str, UsageInfo]:
         """Free-form text completion. Used for page-blind queries where we
-        want the model's natural prose answer, not structured JSON."""
+        want the model's natural prose answer, not structured JSON.
+
+        `cached_user_prefix`, when provided, is sent as a separate user
+        content block with `cache_control: ephemeral`. Used by callers
+        (e.g. persona reviews) that make multiple sequential calls sharing
+        the same large preamble. Anthropic charges 1.25x input for the
+        first creation and 0.1x for each subsequent hit within the TTL.
+        """
         ...
 
 

@@ -14,9 +14,17 @@ from rich.console import Console
 # IDEs) inject empty `*_API_KEY=` into the env, which would otherwise win.
 load_dotenv(override=True)
 
+import webbrowser  # noqa: E402
+
 from thelens import __version__  # noqa: E402
 from thelens.pipeline.run import run_pipeline  # noqa: E402
-from thelens.storage import list_recent_runs, reindex_from_filesystem  # noqa: E402
+from thelens.render.html import render_html  # noqa: E402
+from thelens.storage import (  # noqa: E402
+    find_run_by_partial_id,
+    list_recent_runs,
+    read_manifest,
+    reindex_from_filesystem,
+)
 
 
 app = typer.Typer(
@@ -83,6 +91,34 @@ def list_cmd(
             "pending": "dim",
         }.get(r.status, "white")
         console.print(f"[{color}]{r.status:>9}[/]  {r.run_id}  [dim]{r.url}[/]")
+
+
+@app.command()
+def open(  # noqa: A001 — `open` shadows builtin only inside this command callable
+    run_id: str = typer.Argument(..., help="Full or unique-prefix run_id."),
+    rerender: bool = typer.Option(
+        False, "--rerender", help="Re-render report.html before opening."
+    ),
+) -> None:
+    """Open a run's HTML report in the default browser."""
+    console = Console()
+    manifest = find_run_by_partial_id(_db_path(), run_id)
+    if manifest is None:
+        console.print(f"[red]no run matching '{run_id}'[/]")
+        raise typer.Exit(code=1)
+
+    run_dir = _runs_dir() / manifest.run_id
+    report_path = run_dir / "report.html"
+
+    if rerender or not report_path.exists():
+        # Re-load fresh manifest from disk before rendering, in case the
+        # SQLite index is stale.
+        fresh = read_manifest(run_dir)
+        report_path = render_html(run_dir, fresh)
+        console.print(f"[dim]rendered[/] {report_path}")
+
+    webbrowser.open(report_path.as_uri())
+    console.print(f"[green]opened[/] {report_path}")
 
 
 @app.command()

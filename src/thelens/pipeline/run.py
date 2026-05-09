@@ -27,6 +27,7 @@ from thelens.pipeline import multi_llm as multi_llm_step
 from thelens.pipeline import persona_review as persona_review_step
 from thelens.pipeline import personas as personas_step
 from thelens.pipeline import synthesize as synthesize_step
+from thelens.render.html import render_html
 from thelens.storage import (
     create_run_folder,
     init_db,
@@ -48,6 +49,7 @@ def _initial_step_status() -> dict[str, str]:
         "verification": "pending",
         "persona_reviews": "pending",
         "synthesis": "pending",
+        "html_render": "pending",
     }
 
 
@@ -209,6 +211,13 @@ async def run_pipeline(
             "synthesis", _do_synthesis, manifest, run_dir, db_path, console
         )
 
+        async def _do_html_render() -> None:
+            render_html(run_dir, manifest)
+
+        await _run_step(
+            "html_render", _do_html_render, manifest, run_dir, db_path, console
+        )
+
         manifest.status = "complete"
         manifest.completed_at = datetime.now(timezone.utc)
     except Exception:
@@ -258,6 +267,7 @@ async def _run_step(
         "personas",
         "page_blind_query_gen",
         "synthesis",
+        "html_render",
     }:
         console.print("[green]ok[/]")
     else:

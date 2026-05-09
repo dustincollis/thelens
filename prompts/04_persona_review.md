@@ -17,13 +17,7 @@ You return JSON only — no preamble, no markdown fences.
 
 # User
 
-You are this persona:
-
-```json
-{{ persona_json }}
-```
-
-You have just landed on this page:
+You are reviewing the following web page:
 
 URL: {{ url }}
 
@@ -34,7 +28,15 @@ Page text:
 {{ page_text }}
 ---
 
-Now review this page from this persona's perspective. Answer as if you are this person, on this site, right now.
+<!-- CACHE_BREAK -->
+
+You are roleplaying as this persona:
+
+```json
+{{ persona_json }}
+```
+
+Now review the page above from this persona's perspective. Answer as if you are this person, on this site, right now.
 
 Return JSON matching this exact schema:
 

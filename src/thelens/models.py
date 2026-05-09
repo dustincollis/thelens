@@ -266,7 +266,13 @@ class PersonaSet(BaseModel):
 
 
 class UsageInfo(BaseModel):
-    """Token counts and cost for a single LLM call."""
+    """Token counts and cost for a single LLM call.
+
+    `cache_creation_tokens` and `cache_read_tokens` are populated when
+    Anthropic prompt caching is in use. They roll up into `cost_usd` at
+    the provider's posted cache pricing (1.25x input for creation, 0.1x
+    for reads).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -275,6 +281,8 @@ class UsageInfo(BaseModel):
     input_tokens: int
     output_tokens: int
     cost_usd: float
+    cache_creation_tokens: int = 0
+    cache_read_tokens: int = 0
 
 
 # ============================================================================
