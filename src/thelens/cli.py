@@ -129,7 +129,13 @@ def open(  # noqa: A001 — `open` shadows builtin only inside this command call
     console.print(f"[green]opened[/] {report_path}")
 
 
-_RERUNNABLE_STEPS = {
+# Steps the rerun command can re-execute against an existing run, in
+# pipeline order. discover/crawl deliberately omitted: their output is the
+# foundation everything else reads from, so changing them implies a fresh
+# run from scratch.
+_RERUN_STEPS_ORDER = [
+    "classify",
+    "personas",
     "page_aware",
     "page_blind_query_gen",
     "page_blind",
@@ -137,7 +143,8 @@ _RERUNNABLE_STEPS = {
     "persona_reviews",
     "synthesis",
     "html_render",
-}
+]
+_RERUNNABLE_STEPS = set(_RERUN_STEPS_ORDER)
 
 
 @app.command()
@@ -146,23 +153,33 @@ def rerun(
     step: str = typer.Argument(
         ...,
         help=(
-            "Step to re-run. One of: page_aware, page_blind_query_gen, "
-            "page_blind, verification, persona_reviews, synthesis, html_render."
+            "Step to re-run. One of: classify, personas, page_aware, "
+            "page_blind_query_gen, page_blind, verification, persona_reviews, "
+            "synthesis, html_render."
         ),
     ),
+    downstream: bool = typer.Option(
+        False,
+        "--downstream",
+        "-d",
+        help="Also re-run every step after the named step, in pipeline order.",
+    ),
 ) -> None:
-    """Re-run one step against an existing run folder, reusing prior artifacts.
+    """Re-run one step (or a whole tail) against an existing run folder.
 
     Useful for iterating on prompts: tweak `prompts/04_persona_review.md`,
     then `lens rerun <run_id> persona_reviews` to regenerate only the
-    persona reviews + html. Pre-AI steps (discover, crawl, classify,
-    personas) are not re-runnable from this command — change those by
-    starting a fresh run.
+    persona reviews + html. With `--downstream`, runs that step and every
+    subsequent step in pipeline order — e.g. `lens rerun <run_id> classify
+    --downstream` redoes the entire AI pipeline against the existing crawl.
+
+    Pre-AI steps (discover, crawl) are intentionally not re-runnable from
+    this command — change those by starting a fresh `lens run`.
     """
     if step not in _RERUNNABLE_STEPS:
         Console().print(
             f"[red]'{step}' is not a re-runnable step.[/] "
-            f"Choose one of: {', '.join(sorted(_RERUNNABLE_STEPS))}"
+            f"Choose one of: {', '.join(_RERUN_STEPS_ORDER)}"
         )
         raise typer.Exit(code=1)
 
@@ -173,19 +190,32 @@ def rerun(
         raise typer.Exit(code=1)
 
     run_dir = _runs_dir() / manifest.run_id
-
-    # Load fresh manifest from disk; the SQLite index can be stale.
     fresh = read_manifest(run_dir)
 
-    asyncio.run(_rerun_step(step, run_dir, fresh, console))
-    console.print(f"[bold green]done[/]  {fresh.run_id} :: {step}")
+    if downstream:
+        idx = _RERUN_STEPS_ORDER.index(step)
+        steps_to_run = _RERUN_STEPS_ORDER[idx:]
+    else:
+        steps_to_run = [step]
+
+    for s in steps_to_run:
+        console.print(f"[bold]→ {s}[/]")
+        asyncio.run(_rerun_step(s, run_dir, fresh, console))
+
+    console.print(
+        f"[bold green]done[/]  {fresh.run_id} :: "
+        f"{', '.join(steps_to_run)}  "
+        f"[dim]cumulative cost ${fresh.actual_cost_usd:.4f}[/]"
+    )
 
 
 async def _rerun_step(step: str, run_dir: Path, manifest, console: Console) -> None:
     """Execute a single named step + re-render the HTML report."""
     from thelens.config import load_models_config, load_questions
+    from thelens.pipeline import classify as classify_step
     from thelens.pipeline import multi_llm as multi_llm_step
     from thelens.pipeline import persona_review as persona_review_step
+    from thelens.pipeline import personas as personas_step
     from thelens.pipeline import synthesize as synthesize_step
     from thelens.render.html import render_html
     from thelens.storage import upsert_run, write_manifest
@@ -203,7 +233,16 @@ async def _rerun_step(step: str, run_dir: Path, manifest, console: Console) -> N
         if usage.provider not in manifest.providers_used:
             manifest.providers_used.append(usage.provider)
 
-    if step == "page_aware":
+    if step == "classify":
+        _, usage = await classify_step.classify(run_dir, url)
+        _track(usage)
+
+    elif step == "personas":
+        personas, usage = await personas_step.generate_personas(run_dir)
+        _track(usage)
+        manifest.personas_generated = len(personas.personas)
+
+    elif step == "page_aware":
         usages = await multi_llm_step.run_page_aware(
             run_dir, url, providers, questions, console
         )
