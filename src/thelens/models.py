@@ -441,3 +441,115 @@ class VerificationResult(BaseModel):
 
 # Resolve forward ref on PageAwareResponse
 PageAwareResponse.model_rebuild()
+
+
+# ============================================================================
+# Layer 4: Persona reviews
+# ============================================================================
+
+
+GoalOutcome = Literal[
+    "fully_achieved", "partially_achieved", "not_achieved", "blocked"
+]
+NextAction = Literal[
+    "proceed", "research_more", "abandon", "contact_support", "look_elsewhere"
+]
+
+
+class PersonaReview(BaseModel):
+    """One persona's structured review of the page.
+
+    Output of step 7 — written as `persona_reviews/persona_<n>.json`. The
+    LLM roleplays as the persona; the review reflects that perspective.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    persona_name: str
+    persona_role: str
+    goal_outcome: GoalOutcome
+    goal_outcome_explanation: str
+    what_worked: list[str] = Field(min_length=1, max_length=8)
+    what_failed: list[str] = Field(min_length=1, max_length=8)
+    persona_satisfaction_score: int = Field(ge=1, le=10)
+    score_justification: str
+    next_action: NextAction
+    next_action_explanation: str
+    quotable_observation: str
+
+
+# ============================================================================
+# Layer 5: Synthesis
+# ============================================================================
+
+
+ImpactLevel = Literal["critical", "high", "medium", "low"]
+SeverityLevel = Literal["critical", "high", "medium", "low"]
+EffortLevel = Literal["trivial", "low", "medium", "high"]
+
+
+class ConvergenceFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding: str
+    sources: list[str] = Field(min_length=2, max_length=10)
+    confidence: Confidence
+    impact: ImpactLevel
+
+
+class DivergencePerspective(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: str
+    view: str
+
+
+class DivergenceFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding: str
+    perspectives: list[DivergencePerspective] = Field(min_length=2, max_length=6)
+    likely_resolution: str
+
+
+class Recommendation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    rationale: str
+    severity: SeverityLevel
+    effort: EffortLevel
+    expected_impact: str
+
+
+class ScoreBreakdown(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    clarity: int = Field(ge=0, le=100)
+    llm_readability: int = Field(ge=0, le=100)
+    audience_fit: int = Field(ge=0, le=100)
+    trust: int = Field(ge=0, le=100)
+    action_clarity: int = Field(ge=0, le=100)
+
+
+class Synthesis(BaseModel):
+    """Output of step 8 — the final cross-lens synthesis.
+
+    Composite score + per-dimension breakdown + executive summary +
+    convergence/divergence findings + prioritized recommendations.
+    Written as `synthesis.json`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    composite_score: int = Field(ge=0, le=100)
+    score_breakdown: ScoreBreakdown
+    executive_summary: list[str] = Field(min_length=3, max_length=5)
+    convergence_findings: list[ConvergenceFinding] = Field(
+        min_length=1, max_length=10
+    )
+    divergence_findings: list[DivergenceFinding] = Field(
+        default_factory=list, max_length=8
+    )
+    recommendations: list[Recommendation] = Field(min_length=1, max_length=12)
+    notes: str | None = None

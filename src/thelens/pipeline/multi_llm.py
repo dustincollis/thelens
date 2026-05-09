@@ -36,8 +36,8 @@ from thelens.config import (
     build_page_aware_answers_model,
     prompts_dir,
 )
-from thelens.llm.anthropic_client import AnthropicClient
-from thelens.llm.base import LLMClient, load_prompt
+from thelens.llm.base import load_prompt
+from thelens.llm.factory import build_client
 from thelens.llm.retry import with_retry
 from thelens.models import (
     Classification,
@@ -69,13 +69,6 @@ _PAGE_BLIND_SYSTEM = (
     "appropriate, and explain your reasoning briefly. Do not refuse to "
     "name specific brands unless the question is genuinely ambiguous."
 )
-
-
-def _build_client(name: str, model: str) -> LLMClient:
-    """Provider-name → LLMClient. Add new providers here."""
-    if name == "anthropic":
-        return AnthropicClient(model=model)
-    raise ValueError(f"unknown / not-yet-implemented provider: {name}")
 
 
 def _brand_id(url: str) -> str:
@@ -148,7 +141,7 @@ async def run_page_aware(
     async def _one(p: ProviderConfig) -> UsageInfo | None:
         target = run_dir / "llm" / f"{p.name}_page_aware.json"
         async with sems[p.name]:
-            client = _build_client(p.name, p.model)
+            client = build_client(p.name, p.model)
             try:
                 started = datetime.now(timezone.utc)
                 parsed, usage = await with_retry(
@@ -195,7 +188,7 @@ async def run_page_blind_query_generation(
     system, user = prompt.render(
         classification_json=classification.model_dump_json(indent=2)
     )
-    client = _build_client(synthesis.provider, synthesis.model)
+    client = build_client(synthesis.provider, synthesis.model)
     parsed, usage = await with_retry(
         lambda: client.complete(
             system=system,
@@ -248,7 +241,7 @@ async def run_page_blind(
 
     async def _one_provider(p: ProviderConfig) -> UsageInfo | None:
         target = run_dir / "llm" / f"{p.name}_page_blind.json"
-        client = _build_client(p.name, p.model)
+        client = build_client(p.name, p.model)
         results: list[PageBlindQueryResult] = []
         total_input = 0
         total_output = 0
@@ -348,7 +341,7 @@ async def run_verification(
                 page_text=page_text,
                 provider_response_json=json.dumps(current, indent=2),
             )
-            client = _build_client(synthesis.provider, synthesis.model)
+            client = build_client(synthesis.provider, synthesis.model)
             parsed, usage = await with_retry(
                 lambda: client.complete(
                     system=system,

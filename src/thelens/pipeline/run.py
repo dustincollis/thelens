@@ -24,7 +24,9 @@ from thelens.pipeline import audit as audit_step
 from thelens.pipeline import classify as classify_step
 from thelens.pipeline import fetch as fetch_step
 from thelens.pipeline import multi_llm as multi_llm_step
+from thelens.pipeline import persona_review as persona_review_step
 from thelens.pipeline import personas as personas_step
+from thelens.pipeline import synthesize as synthesize_step
 from thelens.storage import (
     create_run_folder,
     init_db,
@@ -44,6 +46,8 @@ def _initial_step_status() -> dict[str, str]:
         "page_blind_query_gen": "pending",
         "page_blind": "pending",
         "verification": "pending",
+        "persona_reviews": "pending",
+        "synthesis": "pending",
     }
 
 
@@ -178,6 +182,33 @@ async def run_pipeline(
             "verification", _do_verification, manifest, run_dir, db_path, console
         )
 
+        async def _do_persona_reviews() -> None:
+            usages = await persona_review_step.run_persona_reviews(
+                run_dir, url, synthesis, console
+            )
+            for u in usages:
+                _record_usage(manifest, u)
+
+        await _run_step(
+            "persona_reviews",
+            _do_persona_reviews,
+            manifest,
+            run_dir,
+            db_path,
+            console,
+        )
+
+        async def _do_synthesis() -> None:
+            result, usage = await synthesize_step.run_synthesis(
+                run_dir, url, providers, synthesis
+            )
+            _record_usage(manifest, usage)
+            manifest.composite_score = result.composite_score
+
+        await _run_step(
+            "synthesis", _do_synthesis, manifest, run_dir, db_path, console
+        )
+
         manifest.status = "complete"
         manifest.completed_at = datetime.now(timezone.utc)
     except Exception:
@@ -187,9 +218,15 @@ async def run_pipeline(
         raise
 
     _persist(manifest, run_dir, db_path)
+    score = (
+        f"{manifest.composite_score}/100"
+        if manifest.composite_score is not None
+        else "n/a"
+    )
     console.print(
         f"[dim]cost     [/] ${manifest.actual_cost_usd:.4f}  "
-        f"[dim]personas [/] {manifest.personas_generated}"
+        f"[dim]personas [/] {manifest.personas_generated}  "
+        f"[dim]score    [/] {score}"
     )
     return run_id, run_dir
 
@@ -214,10 +251,17 @@ async def _run_step(
         raise
     manifest.step_status[name] = "complete"  # type: ignore[assignment]
     _persist(manifest, run_dir, db_path)
-    if name in {"fetch", "audit", "classify", "personas", "page_blind_query_gen"}:
+    if name in {
+        "fetch",
+        "audit",
+        "classify",
+        "personas",
+        "page_blind_query_gen",
+        "synthesis",
+    }:
         console.print("[green]ok[/]")
     else:
-        # Multi-provider steps print their own per-provider lines; this step's
+        # Multi-step phases print their own per-substep lines; this step's
         # newline came from those.
         console.print("  [green]done[/]")
 
