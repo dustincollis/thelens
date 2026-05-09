@@ -82,6 +82,12 @@ class OpenAIClient:
         # GPT-5 family rejects `temperature` (only the default 1.0 is allowed).
         if not _model_rejects_temperature(self.model):
             kwargs["temperature"] = temperature
+        # Reasoning models (GPT-5 family) consume completion tokens on internal
+        # reasoning before producing visible output. Our prompts are
+        # well-structured; minimal reasoning is enough and leaves the token
+        # budget for the actual JSON response.
+        if _model_uses_reasoning(self.model):
+            kwargs["reasoning_effort"] = "minimal"
 
         try:
             response = await self._client.chat.completions.create(**kwargs)
@@ -127,6 +133,8 @@ class OpenAIClient:
         }
         if not _model_rejects_temperature(self.model):
             kwargs["temperature"] = temperature
+        if _model_uses_reasoning(self.model):
+            kwargs["reasoning_effort"] = "minimal"
 
         try:
             response = await self._client.chat.completions.create(**kwargs)
@@ -212,11 +220,19 @@ def _enforce_strict(node: object) -> None:
 
 
 _MODELS_REJECTING_TEMPERATURE = {"gpt-5", "gpt-5-mini", "gpt-5-nano"}
+_MODELS_WITH_REASONING = {"gpt-5", "gpt-5-mini", "gpt-5-nano", "o1", "o3", "o4-mini"}
 
 
 def _model_rejects_temperature(model: str) -> bool:
     """GPT-5 family hard-codes sampling and rejects non-default temperature."""
     return model in _MODELS_REJECTING_TEMPERATURE
+
+
+def _model_uses_reasoning(model: str) -> bool:
+    """Reasoning models burn completion tokens before producing visible text;
+    we keep `reasoning_effort=minimal` so most of the budget is preserved
+    for the actual response."""
+    return model in _MODELS_WITH_REASONING
 
 
 def _compute_cost(
