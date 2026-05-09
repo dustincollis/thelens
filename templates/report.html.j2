@@ -447,6 +447,7 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: upp
       </td>
       <td>
         {% if p.status == 'complete' %}<span class="badge b-ok">ok</span>
+        {% elif p.status == 'rate_limited' %}<span class="badge b-warn">rate-limited</span>
         {% else %}<span class="badge b-bad">{{ p.status }}</span>
         {% endif %}
       </td>

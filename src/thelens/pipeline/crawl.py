@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -57,9 +58,38 @@ _NETWORKIDLE_EXTRA_WAIT_S = 1.5
 _HTTP_TIMEOUT_S = 30.0
 _PAGE_TIMEOUT_MS = 45_000
 
-# Concurrency cap. Each in-flight crawl holds one Playwright context
-# (~50-100MB resident). 5 is a safe default on a personal laptop.
-MAX_CONCURRENT = 5
+# Polite crawling. WAFs (Cloudflare, Akamai, Imperva) trip on burst traffic
+# even from a small number of clients, so we crawl gently:
+#   - low concurrency (2 simultaneous browsers)
+#   - random per-fetch jitter (1-3s) before each request
+# 100 pages takes ~15 min wall time at this pace, but pages come back as
+# real content rather than challenge interstitials.
+MAX_CONCURRENT = 2
+_JITTER_MIN_S = 1.0
+_JITTER_MAX_S = 3.0
+
+# Markers used by common WAF / DDoS-protection providers to fingerprint
+# their challenge pages. If we see any of these in the rendered DOM we
+# treat the fetch as rate-limited rather than a real page.
+_WAF_CHALLENGE_PATTERNS = (
+    "Just a moment...",
+    "Checking your browser before accessing",
+    "DDoS protection by Cloudflare",
+    "cf-browser-verification",
+    "cf-challenge-running",
+    "Enable JavaScript and cookies to continue",
+    "Pardon Our Interruption",
+    "Incapsula incident ID",
+    "Sucuri Website Firewall",
+    "Access denied | ",
+    "Request unsuccessful. Incapsula",
+)
+
+
+def _looks_like_waf_challenge(html: str) -> bool:
+    if not html:
+        return False
+    return any(pat in html for pat in _WAF_CHALLENGE_PATTERNS)
 
 
 async def crawl_pages(
@@ -93,19 +123,10 @@ async def crawl_pages(
                 page_dir = pages_dir / slug
                 page_dir.mkdir(exist_ok=True)
                 async with sem:
+                    # Per-fetch jitter so concurrent workers don't request in lockstep.
+                    await asyncio.sleep(random.uniform(_JITTER_MIN_S, _JITTER_MAX_S))
                     try:
                         await _fetch_one(browser, page.url, page_dir, full_screenshot=(page.depth == 0))
-                        audit = await audit_step.audit_url(page.url, page_dir)
-                        (page_dir / "technical_audit.json").write_text(
-                            audit.model_dump_json(indent=2), encoding="utf-8"
-                        )
-                        return slug, {
-                            "slug": slug,
-                            "url": page.url,
-                            "depth": page.depth,
-                            "is_anchor": page.is_anchor,
-                            "status": "complete",
-                        }
                     except Exception as exc:
                         _log.warning("crawl: %s failed: %s", page.url, exc)
                         return slug, {
@@ -117,16 +138,62 @@ async def crawl_pages(
                             "error": str(exc),
                         }
 
+                    rendered_path = page_dir / "rendered_dom.html"
+                    rendered_html = (
+                        rendered_path.read_text(encoding="utf-8")
+                        if rendered_path.exists()
+                        else ""
+                    )
+                    if _looks_like_waf_challenge(rendered_html):
+                        _log.warning("crawl: %s blocked by WAF challenge", page.url)
+                        return slug, {
+                            "slug": slug,
+                            "url": page.url,
+                            "depth": page.depth,
+                            "is_anchor": page.is_anchor,
+                            "status": "rate_limited",
+                            "error": "WAF / rate-limit challenge page returned (excluded from corpus)",
+                        }
+
+                    audit = await audit_step.audit_url(page.url, page_dir)
+                    (page_dir / "technical_audit.json").write_text(
+                        audit.model_dump_json(indent=2), encoding="utf-8"
+                    )
+                    return slug, {
+                        "slug": slug,
+                        "url": page.url,
+                        "depth": page.depth,
+                        "is_anchor": page.is_anchor,
+                        "status": "complete",
+                    }
+
+            ok = 0
+            rate_limited = 0
+            failed = 0
+
             async def _track(page: DiscoveredPage) -> tuple[str, dict[str, Any]]:
-                nonlocal completed
-                result = await _do_one(page)
+                nonlocal completed, ok, rate_limited, failed
+                slug, info = await _do_one(page)
                 completed += 1
+                status = info.get("status")
+                if status == "complete":
+                    ok += 1
+                elif status == "rate_limited":
+                    rate_limited += 1
+                else:
+                    failed += 1
                 if console and (completed % 5 == 0 or completed == total):
+                    parts = [f"{ok} ok"]
+                    if rate_limited:
+                        parts.append(f"{rate_limited} rate-limited")
+                    if failed:
+                        parts.append(f"{failed} failed")
                     console.print(
-                        f"    crawled {completed}/{total} pages",
+                        f"    crawled {completed}/{total} pages "
+                        f"[dim]({', '.join(parts)})[/]",
                         highlight=False,
                     )
-                return result
+                return slug, info
 
             tuples = await asyncio.gather(*[_track(p) for p in pages])
         finally:
