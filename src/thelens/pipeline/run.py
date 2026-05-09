@@ -1,14 +1,16 @@
-"""Pipeline orchestrator (multi-page).
+"""Pipeline orchestrator (multi-page, AI-planned discovery).
 
 Step list:
-  discover         enumerate up to N URLs from the homepage
-  crawl            fetch + audit every discovered page in parallel
+  discover         enumerate sitemap + nav anchors → structural seeds + URL pool
+  crawl_seeds      crawl the structural pages (homepage + nav)
+  plan             AI picks additional URLs from the pool
+  crawl_planned    crawl the AI-selected pages
   classify         site fingerprint (Layer 1)
-  personas         3-5 review personas (Layer 2)
+  personas         3 review personas (Layer 2)
   page_aware       site-aware structured Q&A per provider (Layer 3a)
   page_blind_*     category-level brand visibility (Layer 3b)
   verification     fact-check page-aware against site corpus
-  persona_reviews  per-persona site review with prompt caching (Layer 4)
+  persona_reviews  per-persona site review (Layer 4)
   synthesis        cross-lens synthesis with composite score (Layer 5)
   html_render      browser-readable report
 """
@@ -35,6 +37,7 @@ from thelens.pipeline import discover as discover_step
 from thelens.pipeline import multi_llm as multi_llm_step
 from thelens.pipeline import persona_review as persona_review_step
 from thelens.pipeline import personas as personas_step
+from thelens.pipeline import plan as plan_step
 from thelens.pipeline import synthesize as synthesize_step
 from thelens.render.html import render_html
 from thelens.storage import (
@@ -52,7 +55,9 @@ _DEFAULT_MAX_PAGES = 100
 def _initial_step_status() -> dict[str, str]:
     return {
         "discover": "pending",
-        "crawl": "pending",
+        "crawl_seeds": "pending",
+        "plan": "pending",
+        "crawl_planned": "pending",
         "classify": "pending",
         "personas": "pending",
         "page_aware": "pending",
@@ -72,7 +77,6 @@ async def run_pipeline(
     console: Console | None = None,
     max_pages: int = _DEFAULT_MAX_PAGES,
 ) -> tuple[str, Path]:
-    """Run the multi-page audit pipeline. Returns `(run_id, run_dir)`."""
     console = console or Console()
     init_db(db_path)
     runs_dir.mkdir(parents=True, exist_ok=True)
@@ -108,27 +112,80 @@ async def run_pipeline(
         f"[dim]({len(questions)} questions, max {max_pages} pages)[/]"
     )
 
-    discovered: list = []
+    structural_seeds: list = []
+    url_pool = None
     classification: Classification | None = None
     queries: PageBlindQuerySet | None = None
+    crawl_state = None  # carries adaptive backoff state across both phases
 
     try:
         async def _do_discover() -> None:
-            nonlocal discovered
-            discovered = await discover_step.discover(url, max_pages=max_pages)
+            nonlocal structural_seeds, url_pool
+            structural_seeds, url_pool = await discover_step.discover(
+                url, max_pages=max_pages
+            )
+            anchors = sum(1 for p in structural_seeds if p.is_anchor)
+            sections = len(url_pool.by_section) if url_pool else 0
+            pool_size = url_pool.total_count() if url_pool else 0
             console.print(
-                f"    discovered {len(discovered)} pages "
-                f"[dim]({sum(1 for p in discovered if p.is_anchor)} anchors)[/]"
+                f"    structural seeds: {len(structural_seeds)} pages "
+                f"[dim]({anchors} anchors)[/] · "
+                f"URL pool: {pool_size} URLs across {sections} sections"
+            )
+
+        await _run_step("discover", _do_discover, manifest, run_dir, db_path, console)
+
+        async def _do_crawl_seeds() -> None:
+            nonlocal crawl_state, url_pool
+            _, crawl_state = await crawl_step.crawl_pages(
+                structural_seeds, run_dir, console
+            )
+            # Mine the rendered DOMs of the just-crawled pages for more
+            # URLs to add to the planner's pool. Critical for sites whose
+            # sitemap is WAF-gated.
+            assert url_pool is not None
+            before = url_pool.total_count()
+            url_pool = discover_step.enrich_pool_from_crawled_pages(
+                run_dir, url_pool, structural_seeds, url
+            )
+            added = url_pool.total_count() - before
+            if added:
+                console.print(
+                    f"    pool enrichment: +{added} URLs found in crawled pages"
+                )
+
+        await _run_step(
+            "crawl_seeds", _do_crawl_seeds, manifest, run_dir, db_path, console
+        )
+
+        planned_pages: list = []
+
+        async def _do_plan() -> None:
+            nonlocal planned_pages
+            assert url_pool is not None
+            budget = max(0, max_pages - len(structural_seeds))
+            selected, usage = await plan_step.plan_additional_crawl(
+                run_dir, url, structural_seeds, url_pool,
+                budget_remaining=budget, synthesis=synthesis, console=console,
+            )
+            planned_pages = selected
+            if usage:
+                _record_usage(manifest, usage)
+
+        await _run_step("plan", _do_plan, manifest, run_dir, db_path, console)
+
+        async def _do_crawl_planned() -> None:
+            nonlocal crawl_state
+            if not planned_pages:
+                console.print("    no additional pages selected")
+                return
+            _, crawl_state = await crawl_step.crawl_pages(
+                planned_pages, run_dir, console, state=crawl_state
             )
 
         await _run_step(
-            "discover", _do_discover, manifest, run_dir, db_path, console
+            "crawl_planned", _do_crawl_planned, manifest, run_dir, db_path, console
         )
-
-        async def _do_crawl() -> None:
-            await crawl_step.crawl_pages(discovered, run_dir, console)
-
-        await _run_step("crawl", _do_crawl, manifest, run_dir, db_path, console)
 
         async def _do_classify() -> None:
             nonlocal classification
@@ -239,11 +296,20 @@ async def run_pipeline(
         if manifest.composite_score is not None
         else "n/a"
     )
+    # Total pages crawled across both phases.
+    discovery_path = run_dir / "discovery.json"
+    pages_total = 0
+    if discovery_path.exists():
+        try:
+            d = json.loads(discovery_path.read_text(encoding="utf-8"))
+            pages_total = d.get("total", 0)
+        except (json.JSONDecodeError, OSError):
+            pass
     console.print(
         f"[dim]cost     [/] ${manifest.actual_cost_usd:.4f}  "
         f"[dim]personas [/] {manifest.personas_generated}  "
         f"[dim]score    [/] {score}  "
-        f"[dim]pages    [/] {len(discovered)}"
+        f"[dim]pages    [/] {pages_total}"
     )
     return run_id, run_dir
 
@@ -274,10 +340,12 @@ async def _run_step(
         "page_blind_query_gen",
         "synthesis",
         "html_render",
+        "plan",
     }:
         console.print("[green]ok[/]")
     else:
-        # Multi-step phases print their own per-substep lines.
+        # Multi-step phases (discover, crawl, page_aware, etc.) print
+        # their own per-substep lines, so add the trailing OK after them.
         console.print("  [green]done[/]")
 
 

@@ -15,7 +15,7 @@ providers:
     model: gpt-5
     max_concurrent: 4
   gemini:
-    enabled: false
+    enabled: true
     model: gemini-2.5-pro
     max_concurrent: 4
   grok:

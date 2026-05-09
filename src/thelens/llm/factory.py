@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from thelens.llm.anthropic_client import AnthropicClient
 from thelens.llm.base import LLMClient
+from thelens.llm.gemini_client import GeminiClient
 from thelens.llm.openai_client import OpenAIClient
 
 
@@ -17,6 +18,8 @@ def build_client(name: str, model: str) -> LLMClient:
         return AnthropicClient(model=model)
     if name == "openai":
         return OpenAIClient(model=model)
+    if name == "gemini":
+        return GeminiClient(model=model)
     raise ValueError(
         f"unknown / not-yet-implemented provider: {name!r}. "
         "Add a client class in src/thelens/llm/ and a branch here."

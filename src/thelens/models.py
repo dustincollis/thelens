@@ -540,6 +540,23 @@ class ScoreBreakdown(BaseModel):
     action_clarity: int = Field(ge=0, le=100)
 
 
+class CrawlPlan(BaseModel):
+    """AI-selected list of additional URLs to crawl after the structural pass.
+
+    The planner sees what was crawled in Phase 1 and the URL pool grouped
+    by section, then chooses a subset that gives an auditor full coverage
+    without spending the budget on noise (paginated archives, tag pages,
+    etc.). Written to `runs/<id>/crawl_plan.json` for transparency.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    additional_urls: list[str] = Field(default_factory=list)
+    by_section: dict[str, int] = Field(default_factory=dict)
+    rationale: str
+    skipped_sections: list[str] = Field(default_factory=list)
+
+
 class Synthesis(BaseModel):
     """Output of step 8 — the final cross-lens synthesis.
 

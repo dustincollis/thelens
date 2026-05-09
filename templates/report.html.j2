@@ -492,18 +492,39 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: upp
 <section id="pages">
   <h2>Pages crawled <span class="layer-tag">{{ discovery.total }} pages</span></h2>
   <p style="color: var(--muted); margin-bottom: 12px;">
-    Discovery: homepage + nav/header/footer anchors + 2 levels deep, capped at 100 same-domain URLs.
+    Discovery is two-phase: homepage + <code>&lt;nav&gt;/&lt;header&gt;/&lt;footer&gt;</code> anchors crawled first, then an AI planner picks additional pages from the site's sitemap to round out audit coverage. Up to 100 same-domain URLs.
   </p>
+
+  {# Per-section count summary #}
+  {% set section_counts = {} %}
+  {% for p in discovery.pages if p.status == 'complete' %}
+    {% set _ = section_counts.update({p.section: section_counts.get(p.section, 0) + 1}) %}
+  {% endfor %}
+  {% if section_counts %}
+  <div style="margin: 8px 0 16px; font-size: 13px;">
+    <strong>By section:</strong>
+    {% for section, count in section_counts.items() | sort %}
+      <span class="badge b-neutral" style="margin: 1px 2px;">{{ section }}: {{ count }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <table>
-    <thead><tr><th>URL</th><th style="width: 80px;">Depth</th><th style="width: 100px;">Status</th></tr></thead>
+    <thead><tr>
+      <th>URL</th>
+      <th style="width: 110px;">Section</th>
+      <th style="width: 80px;">Origin</th>
+      <th style="width: 100px;">Status</th>
+    </tr></thead>
     <tbody>
-    {% for p in discovery.pages %}
+    {% for p in discovery.pages | sort(attribute='url') %}
     <tr>
       <td><code style="font-size: 12px;">{{ p.url }}</code></td>
+      <td>{{ p.section or '—' }}</td>
       <td>
         {% if p.depth == 0 %}home
-        {% elif p.is_anchor %}anchor
-        {% else %}+{{ p.depth }}
+        {% elif p.is_anchor %}nav
+        {% else %}planned
         {% endif %}
       </td>
       <td>

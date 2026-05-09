@@ -1,16 +1,24 @@
-"""Multi-URL parallel crawl + per-page audit.
+"""Multi-URL parallel crawl + per-page audit, with adaptive backoff.
 
-For every URL produced by `discover.py`, fetch raw HTML (httpx) plus
-JS-rendered DOM (Playwright) plus a viewport screenshot, then run the
-technical/structural audit. Per-page artifacts live in
-`runs/<id>/pages/<slug>/`.
+For every URL passed in, fetches raw HTML (httpx) plus JS-rendered DOM
+(Playwright) plus a viewport screenshot, then runs the technical/
+structural audit. Per-page artifacts live in `runs/<id>/pages/<slug>/`.
 
-A single Playwright browser instance is launched once and reused across
-all pages — only Playwright `BrowserContext` instances are created per
-page (cheap). Concurrency is capped via a semaphore.
+Polite by default — concurrency=2, jitter 1-3s — and adaptive: if a
+sliding window of recent fetches sees too many WAF challenge pages, the
+crawler slows further (concurrency=1, jitter 3-8s, periodic 60s pauses)
+for the rest of the run. The crawl is meant to be the durable artifact
+the AI work iterates against, so it's biased toward "go slow, get clean
+content" rather than "go fast."
 
-Failures on individual pages don't fail the whole run: a `failed` marker
-is written to that page's directory and the rest of the crawl continues.
+Failures on individual pages are non-fatal: the page gets a `failed`
+or `rate_limited` marker JSON in its directory and the rest of the
+crawl continues. Crawl progress prints `ok / rate-limited / failed`
+counts as it goes so trouble is visible in real time.
+
+The discovery list can come from either Phase 1 (structural seeds) or
+Phase 2 (AI-planned URLs); this module just takes a list of pages and
+crawls them.
 """
 
 from __future__ import annotations
@@ -19,6 +27,8 @@ import asyncio
 import json
 import logging
 import random
+from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -58,19 +68,21 @@ _NETWORKIDLE_EXTRA_WAIT_S = 1.5
 _HTTP_TIMEOUT_S = 30.0
 _PAGE_TIMEOUT_MS = 45_000
 
-# Polite crawling. WAFs (Cloudflare, Akamai, Imperva) trip on burst traffic
-# even from a small number of clients, so we crawl gently:
-#   - low concurrency (2 simultaneous browsers)
-#   - random per-fetch jitter (1-3s) before each request
-# 100 pages takes ~15 min wall time at this pace, but pages come back as
-# real content rather than challenge interstitials.
-MAX_CONCURRENT = 2
-_JITTER_MIN_S = 1.0
-_JITTER_MAX_S = 3.0
+# Default polite-mode pacing.
+_DEFAULT_CONCURRENT = 2
+_DEFAULT_JITTER_MIN_S = 1.0
+_DEFAULT_JITTER_MAX_S = 3.0
 
-# Markers used by common WAF / DDoS-protection providers to fingerprint
-# their challenge pages. If we see any of these in the rendered DOM we
-# treat the fetch as rate-limited rather than a real page.
+# Cautious-mode pacing (triggered after we hit too many WAF challenges).
+_CAUTIOUS_JITTER_MIN_S = 3.0
+_CAUTIOUS_JITTER_MAX_S = 8.0
+_CAUTIOUS_COOLDOWN_S = 60.0
+
+# Sliding-window WAF detection: if N of last M fetches were rate-limited,
+# switch to cautious mode for the rest of the run.
+_WAF_WINDOW = 10
+_WAF_THRESHOLD = 3
+
 _WAF_CHALLENGE_PATTERNS = (
     "Just a moment...",
     "Checking your browser before accessing",
@@ -92,25 +104,57 @@ def _looks_like_waf_challenge(html: str) -> bool:
     return any(pat in html for pat in _WAF_CHALLENGE_PATTERNS)
 
 
+@dataclass
+class _CrawlState:
+    """Shared adaptive-backoff state across crawl workers."""
+
+    recent_outcomes: deque = field(
+        default_factory=lambda: deque(maxlen=_WAF_WINDOW)
+    )  # True = rate-limited, False = ok
+    cautious: bool = False
+    cooldown_until: float = 0.0  # asyncio loop time
+
+    def record(self, was_rate_limited: bool) -> None:
+        self.recent_outcomes.append(was_rate_limited)
+        if (
+            not self.cautious
+            and sum(self.recent_outcomes) >= _WAF_THRESHOLD
+        ):
+            self.cautious = True
+            self.cooldown_until = asyncio.get_event_loop().time() + _CAUTIOUS_COOLDOWN_S
+
+    def jitter_range(self) -> tuple[float, float]:
+        if self.cautious:
+            return _CAUTIOUS_JITTER_MIN_S, _CAUTIOUS_JITTER_MAX_S
+        return _DEFAULT_JITTER_MIN_S, _DEFAULT_JITTER_MAX_S
+
+    async def wait_for_cooldown(self) -> None:
+        now = asyncio.get_event_loop().time()
+        if now < self.cooldown_until:
+            await asyncio.sleep(self.cooldown_until - now)
+
+
 async def crawl_pages(
     pages: list[DiscoveredPage],
     run_dir: Path,
     console: Console | None = None,
-) -> dict[str, dict[str, Any]]:
-    """Fetch + audit every discovered page in parallel.
+    state: _CrawlState | None = None,
+) -> tuple[dict[str, dict[str, Any]], _CrawlState]:
+    """Fetch + audit every page in parallel. Returns `(results, state)`.
 
-    Returns a `{slug: page_record}` dict. Each `page_record` has:
-        url, depth, is_anchor, slug, status (complete|failed),
-        error (only when status=failed)
+    `state` carries forward across multi-phase crawls (Phase 1 + Phase 2)
+    so adaptive backoff persists across both. Pass it back in on the
+    second call.
+
     Per-page files (raw_html.html, rendered_dom.html, screenshot, audit)
-    are written to `run_dir/pages/<slug>/`.
-
-    The full-page screenshot is captured only for the homepage (depth 0)
-    to keep run-folder size manageable. Other pages get viewport only.
+    are written to `run_dir/pages/<slug>/`. The full-page screenshot is
+    captured only for the homepage (depth 0). discovery.json at the
+    run root is always rewritten with the union of crawled pages.
     """
     pages_dir = run_dir / "pages"
     pages_dir.mkdir(exist_ok=True)
-    sem = asyncio.Semaphore(MAX_CONCURRENT)
+    state = state or _CrawlState()
+    sem = asyncio.Semaphore(_DEFAULT_CONCURRENT)
 
     completed = 0
     total = len(pages)
@@ -123,20 +167,18 @@ async def crawl_pages(
                 page_dir = pages_dir / slug
                 page_dir.mkdir(exist_ok=True)
                 async with sem:
-                    # Per-fetch jitter so concurrent workers don't request in lockstep.
-                    await asyncio.sleep(random.uniform(_JITTER_MIN_S, _JITTER_MAX_S))
+                    await state.wait_for_cooldown()
+                    jmin, jmax = state.jitter_range()
+                    await asyncio.sleep(random.uniform(jmin, jmax))
                     try:
-                        await _fetch_one(browser, page.url, page_dir, full_screenshot=(page.depth == 0))
+                        await _fetch_one(
+                            browser, page.url, page_dir,
+                            full_screenshot=(page.depth == 0),
+                        )
                     except Exception as exc:
+                        state.record(was_rate_limited=False)
                         _log.warning("crawl: %s failed: %s", page.url, exc)
-                        return slug, {
-                            "slug": slug,
-                            "url": page.url,
-                            "depth": page.depth,
-                            "is_anchor": page.is_anchor,
-                            "status": "failed",
-                            "error": str(exc),
-                        }
+                        return slug, _record(page, slug, "failed", error=str(exc))
 
                     rendered_path = page_dir / "rendered_dom.html"
                     rendered_html = (
@@ -145,27 +187,19 @@ async def crawl_pages(
                         else ""
                     )
                     if _looks_like_waf_challenge(rendered_html):
+                        state.record(was_rate_limited=True)
                         _log.warning("crawl: %s blocked by WAF challenge", page.url)
-                        return slug, {
-                            "slug": slug,
-                            "url": page.url,
-                            "depth": page.depth,
-                            "is_anchor": page.is_anchor,
-                            "status": "rate_limited",
-                            "error": "WAF / rate-limit challenge page returned (excluded from corpus)",
-                        }
+                        return slug, _record(
+                            page, slug, "rate_limited",
+                            error="WAF / rate-limit challenge page returned",
+                        )
 
+                    state.record(was_rate_limited=False)
                     audit = await audit_step.audit_url(page.url, page_dir)
                     (page_dir / "technical_audit.json").write_text(
                         audit.model_dump_json(indent=2), encoding="utf-8"
                     )
-                    return slug, {
-                        "slug": slug,
-                        "url": page.url,
-                        "depth": page.depth,
-                        "is_anchor": page.is_anchor,
-                        "status": "complete",
-                    }
+                    return slug, _record(page, slug, "complete")
 
             ok = 0
             rate_limited = 0
@@ -188,9 +222,10 @@ async def crawl_pages(
                         parts.append(f"{rate_limited} rate-limited")
                     if failed:
                         parts.append(f"{failed} failed")
+                    suffix = " [yellow](cautious mode)[/]" if state.cautious else ""
                     console.print(
                         f"    crawled {completed}/{total} pages "
-                        f"[dim]({', '.join(parts)})[/]",
+                        f"[dim]({', '.join(parts)})[/]{suffix}",
                         highlight=False,
                     )
                 return slug, info
@@ -199,19 +234,26 @@ async def crawl_pages(
         finally:
             await browser.close()
 
+    # Merge with any existing discovery.json (Phase 2 appends to Phase 1's).
     results: dict[str, dict[str, Any]] = {}
+    discovery_path = run_dir / "discovery.json"
+    if discovery_path.exists():
+        try:
+            existing = json.loads(discovery_path.read_text(encoding="utf-8"))
+            for entry in existing.get("pages", []):
+                results[entry["slug"]] = entry
+        except (json.JSONDecodeError, OSError):
+            pass
+
     for slug, info in tuples:
-        # Handle slug collisions: append a suffix if the same slug was used twice.
-        if slug in results:
-            i = 2
-            while f"{slug}_{i}" in results:
-                i += 1
-            results[f"{slug}_{i}"] = info
-        else:
+        if slug in results and info.get("status") == "complete":
+            # Phase 2 may re-crawl a Phase 1 slug only if structural cap
+            # pushed it; prefer the newer record.
+            results[slug] = info
+        elif slug not in results:
             results[slug] = info
 
-    # Write index alongside the pages folder.
-    (run_dir / "discovery.json").write_text(
+    discovery_path.write_text(
         json.dumps(
             {
                 "discovered_at": datetime.now(timezone.utc).isoformat(),
@@ -222,7 +264,26 @@ async def crawl_pages(
         ),
         encoding="utf-8",
     )
-    return results
+    return results, state
+
+
+def _record(
+    page: DiscoveredPage,
+    slug: str,
+    status: str,
+    error: str | None = None,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "slug": slug,
+        "url": page.url,
+        "depth": page.depth,
+        "is_anchor": page.is_anchor,
+        "section": page.section,
+        "status": status,
+    }
+    if error:
+        out["error"] = error
+    return out
 
 
 async def _fetch_one(
@@ -231,7 +292,6 @@ async def _fetch_one(
     page_dir: Path,
     full_screenshot: bool,
 ) -> None:
-    """Fetch raw HTML + rendered DOM + screenshot for a single URL."""
     raw_html = await _fetch_raw_html(url)
     (page_dir / "raw_html.html").write_text(raw_html, encoding="utf-8")
 
@@ -256,7 +316,6 @@ async def _fetch_one(
 
 
 async def _fetch_raw_html(url: str) -> str:
-    """GET via httpx with full browser headers. Returns empty string on failure."""
     async with httpx.AsyncClient(
         follow_redirects=True, timeout=_HTTP_TIMEOUT_S, headers=_BROWSER_HEADERS
     ) as client:
