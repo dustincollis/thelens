@@ -4,10 +4,9 @@ Uses `google-genai` SDK. Structured output is achieved by passing the
 Pydantic class directly as `response_schema`; Gemini returns JSON that
 the SDK auto-parses. Free-form text uses the same API without a schema.
 
-Thinking budget is set to 0 by default — our prompts are well-structured
-and don't need extended reasoning. This mirrors the OpenAI
-`reasoning_effort=minimal` decision and keeps cost in line with the
-posted token rates.
+Thinking budget is set to -1 (dynamic — model decides) since Gemini 2.5
+Pro rejects thinking_budget=0. Most calls will use a small amount of
+reasoning. If costs grow unexpectedly, this is the first knob to lower.
 """
 
 from __future__ import annotations
@@ -82,7 +81,7 @@ class GeminiClient:
             response_schema=response_format,
             max_output_tokens=max_tokens,
             temperature=temperature,
-            thinking_config=gtypes.ThinkingConfig(thinking_budget=0),
+            thinking_config=gtypes.ThinkingConfig(thinking_budget=-1),
         )
 
         try:
@@ -124,7 +123,7 @@ class GeminiClient:
             system_instruction=system,
             max_output_tokens=max_tokens,
             temperature=temperature,
-            thinking_config=gtypes.ThinkingConfig(thinking_budget=0),
+            thinking_config=gtypes.ThinkingConfig(thinking_budget=-1),
         )
         try:
             response = await self._client.aio.models.generate_content(
