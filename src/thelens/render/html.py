@@ -13,10 +13,31 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from markdown_it import MarkdownIt
+from markupsafe import Markup
 
 from thelens.config import load_questions, project_root
 from thelens.models import RunManifest
 from thelens.pipeline.corpus import build_audit_summary, homepage_record
+
+
+# CommonMark renderer with HTML disabled (LLM output should not be able to
+# inject raw <script> or <iframe> tags). Linkify auto-detects bare URLs.
+_MD = MarkdownIt("default", {"html": False, "linkify": False, "breaks": False})
+
+
+def _md_block(text: str | None) -> Markup:
+    """Render Markdown text with block-level wrapping (paragraphs, lists)."""
+    if not text:
+        return Markup("")
+    return Markup(_MD.render(text))
+
+
+def _md_inline(text: str | None) -> Markup:
+    """Render Markdown without wrapping in <p>; for use inside existing block elements."""
+    if not text:
+        return Markup("")
+    return Markup(_MD.renderInline(text))
 
 
 def render_html(run_dir: Path, manifest: RunManifest) -> Path:
@@ -36,12 +57,15 @@ def render_html(run_dir: Path, manifest: RunManifest) -> Path:
 
 
 def _build_env() -> Environment:
-    return Environment(
+    env = Environment(
         loader=FileSystemLoader(project_root() / "templates"),
         autoescape=select_autoescape(["html", "j2"]),
         trim_blocks=True,
         lstrip_blocks=True,
     )
+    env.filters["md"] = _md_block
+    env.filters["mdinline"] = _md_inline
+    return env
 
 
 def _load_artifacts(run_dir: Path) -> dict[str, object]:

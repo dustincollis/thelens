@@ -151,6 +151,33 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: upp
 .kv { display: grid; grid-template-columns: 200px 1fr; gap: 6px 18px; font-size: 14px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; }
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+  line-height: 1.4;
+  max-width: 70ch;
+}
+.hint code {
+  background: var(--bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+/* Rendered Markdown blocks (mostly inside .response and findings) */
+.markdown { font-size: 14px; }
+.markdown p { margin: 0 0 8px; }
+.markdown p:last-child { margin-bottom: 0; }
+.markdown ul, .markdown ol { margin: 6px 0; padding-left: 22px; }
+.markdown li { margin: 2px 0; }
+.markdown h1, .markdown h2, .markdown h3 { font-size: 14px; font-weight: 600; margin: 10px 0 4px; }
+.markdown strong { font-weight: 600; }
+.markdown em { font-style: italic; }
+.markdown code { background: var(--bg); padding: 1px 4px; border-radius: 3px; font-size: 12px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.markdown pre { background: var(--bg); padding: 10px 12px; border-radius: 4px; overflow-x: auto; }
+.markdown pre code { background: none; padding: 0; }
+.markdown blockquote { border-left: 3px solid var(--border-strong); margin: 6px 0; padding-left: 10px; color: var(--muted); }
 
 /* Score bars */
 .bars { display: flex; flex-direction: column; gap: 12px; }
@@ -333,7 +360,7 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: upp
   <h2>Executive summary <span class="layer-tag">Layer 5</span></h2>
   <ul>
     {% for item in synthesis.executive_summary %}
-      <li>{{ item }}</li>
+      <li>{{ item | mdinline }}</li>
     {% endfor %}
   </ul>
 </section>
@@ -386,25 +413,59 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: upp
   <h2>Technical audit <span class="layer-tag">homepage detail</span></h2>
   <dl class="kv">
     <dt>Render-mode JS-trapped</dt>
-    <dd>{{ hp.render_mode_diff.js_trapped_pct }}% (raw {{ hp.render_mode_diff.raw_text_chars }} chars → rendered {{ hp.render_mode_diff.rendered_text_chars }} chars)</dd>
+    <dd>
+      {{ hp.render_mode_diff.js_trapped_pct }}% (raw {{ hp.render_mode_diff.raw_text_chars }} chars → rendered {{ hp.render_mode_diff.rendered_text_chars }} chars)
+      <div class="hint">Share of text that requires JavaScript to extract. Hidden from non-rendering crawlers (some AI bots, RSS, traditional search). Modern AI assistants with rendering tools usually do see this content.</div>
+    </dd>
 
-    <dt>HTTPS</dt><dd>{% if hp.trust_signals.https %}<span class="badge b-ok">yes</span>{% else %}<span class="badge b-bad">no</span>{% endif %}</dd>
-    <dt>H1 count</dt><dd>{{ hp.html_structure.h1_count }}{% if hp.html_structure.heading_hierarchy_violations %} <span class="badge b-warn">{{ hp.html_structure.heading_hierarchy_violations }} hierarchy violations</span>{% endif %}</dd>
-    <dt>Image alt coverage</dt><dd>{{ hp.html_structure.alt_text_coverage_pct }}% ({{ hp.html_structure.images_missing_alt }}/{{ hp.html_structure.image_count }} images missing alt)</dd>
-    <dt>Low-quality link text</dt><dd>{{ hp.html_structure.low_quality_link_text_count }} occurrences</dd>
-    <dt>JSON-LD blocks</dt><dd>{{ hp.structured_data.json_ld_blocks }} ({{ hp.structured_data.json_ld_types | join(', ') if hp.structured_data.json_ld_types else 'none' }}){% if hp.structured_data.missing_recommended_schemas %} · missing: {{ hp.structured_data.missing_recommended_schemas | join(', ') }}{% endif %}</dd>
-    <dt>Open Graph</dt><dd>{{ hp.structured_data.open_graph | length }} tags{% if hp.structured_data.twitter_card %} · twitter card present{% endif %}</dd>
-    <dt>llms.txt</dt><dd>{% if hp.llms_txt.present %}<span class="badge b-ok">present</span> ({{ hp.llms_txt.size_bytes }} bytes){% else %}<span class="badge b-warn">missing</span>{% endif %}</dd>
+    <dt>HTTPS</dt><dd>
+      {% if hp.trust_signals.https %}<span class="badge b-ok">yes</span>{% else %}<span class="badge b-bad">no</span>{% endif %}
+      <div class="hint">TLS encryption. Required by most browsers; lack of HTTPS triggers visible "Not Secure" warnings.</div>
+    </dd>
+
+    <dt>H1 count</dt><dd>
+      {{ hp.html_structure.h1_count }}{% if hp.html_structure.heading_hierarchy_violations %} <span class="badge b-warn">{{ hp.html_structure.heading_hierarchy_violations }} hierarchy violations</span>{% endif %}
+      <div class="hint">Pages should have exactly one H1. Multiple H1s or skipped levels (H1 → H3 with no H2) confuse screen readers and AI extractors trying to parse page structure.</div>
+    </dd>
+
+    <dt>Image alt coverage</dt><dd>
+      {{ hp.html_structure.alt_text_coverage_pct }}% ({{ hp.html_structure.images_missing_alt }}/{{ hp.html_structure.image_count }} images missing alt)
+      <div class="hint">Alt text describes images for screen readers, image search, and multimodal AI. Counted only over <code>&lt;img&gt;</code> tags — sites using SVG or CSS background images may show low counts without a real accessibility issue.</div>
+    </dd>
+
+    <dt>Low-quality link text</dt><dd>
+      {{ hp.html_structure.low_quality_link_text_count }} occurrences
+      <div class="hint">Links labeled "Read more" or "Click here" don't tell assistive tech, search, or AI agents what's on the other side. Each link should describe its destination.</div>
+    </dd>
+
+    <dt>JSON-LD blocks</dt><dd>
+      {{ hp.structured_data.json_ld_blocks }} ({{ hp.structured_data.json_ld_types | join(', ') if hp.structured_data.json_ld_types else 'none' }}){% if hp.structured_data.missing_recommended_schemas %} · missing: {{ hp.structured_data.missing_recommended_schemas | join(', ') }}{% endif %}
+      <div class="hint">Schema.org markup tells search engines and AI exactly what an entity is. Without it, AI assistants must mine prose to cite the page, which is error-prone. <code>Organization</code>, <code>WebSite</code>, and <code>BreadcrumbList</code> are the baseline.</div>
+    </dd>
+
+    <dt>Open Graph</dt><dd>
+      {{ hp.structured_data.open_graph | length }} tags{% if hp.structured_data.twitter_card %} · twitter card present{% endif %}
+      <div class="hint">Controls how the page renders when shared on social or in chat (Slack, iMessage, LinkedIn). Missing tags produce broken or generic previews.</div>
+    </dd>
+
+    <dt>llms.txt</dt><dd>
+      {% if hp.llms_txt.present %}<span class="badge b-ok">present</span> ({{ hp.llms_txt.size_bytes }} bytes){% else %}<span class="badge b-warn">missing</span>{% endif %}
+      <div class="hint">Emerging standard giving AI assistants a curated map of the site. Optional today, but signals AI-readiness.</div>
+    </dd>
+
     <dt>Trust signals</dt><dd>
       contact {{ '✓' if hp.trust_signals.contact_info_present else '✗' }} ·
       privacy {{ '✓' if hp.trust_signals.privacy_policy_link else '✗' }} ·
       author byline {{ '✓' if hp.trust_signals.author_byline else '✗' }} ·
       last-updated {{ '✓' if hp.trust_signals.last_updated_date else '✗' }}
+      <div class="hint">Basic credibility cues. Missing privacy / contact paths block enterprise procurement; missing bylines and dates make content harder to verify and cite.</div>
     </dd>
+
     <dt>AI crawler access</dt><dd>
       {% for bot, status in hp.ai_crawler_access.crawlers.items() %}
         <span class="badge b-{{ 'ok' if status == 'allowed' else 'bad' }}" style="margin: 1px 2px;">{{ bot }}</span>
       {% endfor %}
+      <div class="hint">Per-bot rules from robots.txt. Disallowing AI bots prevents both training-data ingestion and (for some bots) live answer-citation in AI assistants.</div>
     </dd>
   </dl>
 
@@ -568,7 +629,7 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: upp
         {% endif %}
         <details style="margin-top: 8px;">
           <summary style="font-size: 12px; color: var(--muted); cursor: pointer;">view full response</summary>
-          <div class="response expanded" style="margin-top: 8px; white-space: pre-wrap;">{{ r.response_text }}</div>
+          <div class="markdown" style="margin-top: 8px;">{{ r.response_text | md }}</div>
         </details>
       </div>
       {% endfor %}
@@ -623,7 +684,7 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: upp
   <p style="color: var(--muted); margin-bottom: 12px;">Multiple lenses agree. Strong signal.</p>
   {% for f in synthesis.convergence_findings %}
     <div class="item">
-      <div>{{ f.finding }}</div>
+      <div>{{ f.finding | mdinline }}</div>
       <div class="meta">
         {{ impact_badge(f.impact) }}
         <span>confidence: {{ f.confidence }}</span>
@@ -641,13 +702,13 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: upp
   <p style="color: var(--muted); margin-bottom: 12px;">Lenses disagree. Worth understanding which is right.</p>
   {% for f in synthesis.divergence_findings %}
     <div class="item">
-      <div><strong>{{ f.finding }}</strong></div>
+      <div><strong>{{ f.finding | mdinline }}</strong></div>
       <div class="perspectives">
         {% for p in f.perspectives %}
-          <div class="p"><span class="src">{{ p.source }}:</span> {{ p.view }}</div>
+          <div class="p"><span class="src">{{ p.source }}:</span> {{ p.view | mdinline }}</div>
         {% endfor %}
       </div>
-      <div class="meta"><strong>Likely:</strong> {{ f.likely_resolution }}</div>
+      <div class="meta"><strong>Likely:</strong> {{ f.likely_resolution | mdinline }}</div>
     </div>
   {% endfor %}
 </section>
@@ -660,14 +721,14 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: upp
   {% for r in synthesis.recommendations %}
     <div class="item">
       <div style="display: flex; justify-content: space-between; gap: 12px; align-items: baseline;">
-        <div><strong>{{ r.title }}</strong></div>
+        <div><strong>{{ r.title | mdinline }}</strong></div>
         <div>
           {{ impact_badge(r.severity) }}
           <span class="badge b-neutral">effort: {{ r.effort }}</span>
         </div>
       </div>
-      <div style="margin-top: 6px; font-size: 14px;">{{ r.rationale }}</div>
-      <div class="meta"><strong>Expected impact:</strong> {{ r.expected_impact }}</div>
+      <div style="margin-top: 6px;" class="markdown">{{ r.rationale | md }}</div>
+      <div class="meta"><strong>Expected impact:</strong> {{ r.expected_impact | mdinline }}</div>
     </div>
   {% endfor %}
 </section>
