@@ -16,6 +16,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from thelens.config import load_questions, project_root
 from thelens.models import RunManifest
+from thelens.pipeline.corpus import build_audit_summary, homepage_record
 
 
 def render_html(run_dir: Path, manifest: RunManifest) -> Path:
@@ -44,17 +45,15 @@ def _build_env() -> Environment:
 
 
 def _load_artifacts(run_dir: Path) -> dict[str, object]:
-    """Load every JSON artifact the template might need.
-
-    Missing artifacts (e.g., a step failed mid-run) become `None` so the
-    template can `{% if %}`-guard them rather than crashing.
-    """
+    """Load every JSON artifact the template might need."""
     out: dict[str, object] = {
-        "audit": _read_json(run_dir / "technical_audit.json"),
+        "audit": build_audit_summary(run_dir),
         "classification": _read_json(run_dir / "classification.json"),
         "personas": _read_json(run_dir / "personas.json"),
         "synthesis": _read_json(run_dir / "synthesis.json"),
         "page_blind_queries": _read_json(run_dir / "page_blind_queries.json"),
+        "discovery": _read_json(run_dir / "discovery.json"),
+        "homepage": homepage_record(run_dir),
     }
 
     page_aware: dict[str, dict] = {}

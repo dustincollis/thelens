@@ -17,11 +17,11 @@ You return JSON only — no preamble, no markdown fences.
 
 # User
 
-Below are all the inputs from one site-review run.
+Below are all the inputs from one site-review run. The site was crawled to a depth of two anchor levels from the homepage; the technical audit reflects every page crawled, while the AI evaluators saw a corpus of cleaned text from those pages.
 
-URL: {{ url }}
+Site URL: {{ site_url }}
 
-## Technical audit
+## Technical audit (homepage detail + cross-page aggregates)
 
 ```json
 {{ technical_audit_json }}
@@ -39,13 +39,13 @@ URL: {{ url }}
 {{ personas_json }}
 ```
 
-## Multi-LLM page-aware responses (each provider answered the same questions about the page)
+## Multi-LLM site-aware responses (each provider answered the standard questions about the site, with the multi-page corpus)
 
 ```json
 {{ page_aware_responses_json }}
 ```
 
-## Page-blind brand visibility (each provider answered category-level queries WITHOUT seeing the page)
+## Page-blind brand visibility (each provider answered category-level queries WITHOUT seeing the site)
 
 ```json
 {{ page_blind_responses_json }}

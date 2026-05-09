@@ -60,13 +60,19 @@ def _root() -> None:
 
 @app.command()
 def run(
-    url: str = typer.Argument(..., help="URL to audit."),
+    url: str = typer.Argument(..., help="URL to audit (homepage; we crawl from there)."),
+    max_pages: int = typer.Option(
+        100,
+        "--max-pages",
+        "-n",
+        help="Cap on discovered URLs to crawl. Default 100.",
+    ),
 ) -> None:
-    """Run the audit pipeline for a single URL."""
+    """Run the audit pipeline against a website (multi-page crawl + AI synthesis)."""
     console = Console()
     try:
         run_id, run_dir = asyncio.run(
-            run_pipeline(url, _runs_dir(), _db_path(), console)
+            run_pipeline(url, _runs_dir(), _db_path(), console, max_pages=max_pages)
         )
     except Exception as exc:
         console.print(f"[bold red]run failed:[/] {exc}")

@@ -17,15 +17,15 @@ You return JSON only — no preamble, no markdown fences.
 
 # User
 
-You are reviewing the following web page:
+You are reviewing the following website. The text below is the cleaned content from multiple pages on the site, separated by `## URL:` markers. Pages are ordered: homepage first, then primary nav pages, then sub-pages.
 
-URL: {{ url }}
+Site URL: {{ site_url }}
 
-Page title: {{ page_title }}
+Homepage title: {{ site_title }}
 
-Page text:
+Site content:
 ---
-{{ page_text }}
+{{ site_text }}
 ---
 
 <!-- CACHE_BREAK -->
@@ -36,7 +36,7 @@ You are roleplaying as this persona:
 {{ persona_json }}
 ```
 
-Now review the page above from this persona's perspective. Answer as if you are this person, on this site, right now.
+Now review the site above from this persona's perspective. Answer as if you are this person, navigating this site right now. Pick whichever pages from the site content you would actually visit on your way to your goal.
 
 Return JSON matching this exact schema:
 

@@ -49,7 +49,11 @@ from thelens.models import (
     UsageInfo,
     VerificationResult,
 )
-from thelens.pipeline._extract import extract_title, extract_visible_text
+from thelens.pipeline.corpus import (
+    build_site_corpus,
+    homepage_title,
+    homepage_url,
+)
 
 
 _log = logging.getLogger(__name__)
@@ -80,19 +84,22 @@ def _brand_id(url: str) -> str:
 
 
 def _build_page_aware_user_prompt(
-    url: str, page_title: str, page_text: str, questions: list[Question]
+    url: str, site_title: str, site_text: str, questions: list[Question]
 ) -> str:
     parts = [
-        f"URL: {url}",
-        f"Page title: {page_title}",
+        f"Site URL: {url}",
+        f"Homepage title: {site_title}",
         "",
-        "Page text:",
+        "Site content (cleaned text from one or more pages, separated by "
+        "`## URL:` markers):",
         "---",
-        page_text,
+        site_text,
         "---",
         "",
-        "Answer the following questions about this page. Each answer must "
-        "match the schema for its type.",
+        "Answer the following questions about this site. Each answer must "
+        "match the schema for its type. Where a question is naturally page-"
+        "specific, focus on the homepage but cite other pages from the corpus "
+        "when relevant.",
         "",
     ]
     for q in questions:
@@ -129,12 +136,12 @@ async def run_page_aware(
     questions: list[Question],
     console: Console,
 ) -> list[UsageInfo]:
-    rendered_html = (run_dir / "rendered_dom.html").read_text(encoding="utf-8")
-    page_text = extract_visible_text(rendered_html)[:_PAGE_TEXT_CAP]
-    page_title = extract_title(rendered_html)
+    site_text = build_site_corpus(run_dir)
+    site_title = homepage_title(run_dir)
+    site_url = homepage_url(run_dir) or url
 
     answers_model = build_page_aware_answers_model(questions)
-    user_prompt = _build_page_aware_user_prompt(url, page_title, page_text, questions)
+    user_prompt = _build_page_aware_user_prompt(site_url, site_title, site_text, questions)
 
     sems = {p.name: asyncio.Semaphore(p.max_concurrent) for p in providers}
 
@@ -317,8 +324,8 @@ async def run_verification(
     synthesis: SynthesisConfig,
     console: Console,
 ) -> list[UsageInfo]:
-    rendered_html = (run_dir / "rendered_dom.html").read_text(encoding="utf-8")
-    page_text = extract_visible_text(rendered_html)[:_PAGE_TEXT_CAP]
+    site_text = build_site_corpus(run_dir)
+    site_url = homepage_url(run_dir) or url
     prompt = load_prompt(prompts_dir() / "06_verification.md")
 
     async def _verify_one(p: ProviderConfig) -> UsageInfo | None:
@@ -337,8 +344,8 @@ async def run_verification(
                 return None
 
             system, user = prompt.render(
-                url=url,
-                page_text=page_text,
+                site_url=site_url,
+                site_text=site_text,
                 provider_response_json=json.dumps(current, indent=2),
             )
             client = build_client(synthesis.provider, synthesis.model)

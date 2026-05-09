@@ -1,17 +1,17 @@
-"""Step 7 — Layer 4: per-persona reviews.
+"""Step 7 — Layer 4: per-persona site reviews.
 
 For each persona in `personas.json`, one LLM call has the model roleplay
-as that persona and review the page. Output is one
+as that persona and review the SITE (multi-page corpus). Output is one
 `persona_reviews/persona_<n>.json` per persona.
 
 Sequential rather than parallel: with one synthesis-grade model and 3-5
-personas this is ~30s total, and serializing keeps us comfortably within
-provider rate limits.
+personas this is ~30-60s total, and serializing keeps us comfortably
+within provider rate limits.
 
 Prompt caching: the rendered user prompt is split on a `<!-- CACHE_BREAK -->`
-marker so the page-text-bearing prefix is sent as a cached block. With 5
+marker so the corpus-bearing prefix is sent as a cached block. With 5
 personas in a row, calls 2-5 read the cached prefix at 0.1x the per-token
-cost, saving ~30% on the persona-reviews step.
+cost — meaningful at 100-page corpus sizes.
 """
 
 from __future__ import annotations
@@ -25,20 +25,17 @@ from thelens.llm.base import load_prompt
 from thelens.llm.factory import build_client
 from thelens.llm.retry import with_retry
 from thelens.models import Persona, PersonaReview, PersonaSet, UsageInfo
-from thelens.pipeline._extract import extract_title, extract_visible_text
+from thelens.pipeline.corpus import (
+    build_site_corpus,
+    homepage_title,
+    homepage_url,
+)
 
 
-_PAGE_TEXT_CAP = 100_000
 _CACHE_BREAK = "<!-- CACHE_BREAK -->"
 
 
 def _split_on_cache_break(rendered: str) -> tuple[str | None, str]:
-    """Split a rendered prompt into (cached_prefix, remainder).
-
-    Marker convention: a single `<!-- CACHE_BREAK -->` line in the prompt
-    template separates the cacheable preamble from the per-call content.
-    Returns (None, rendered) if the marker is absent.
-    """
     if _CACHE_BREAK not in rendered:
         return None, rendered
     cached, _, rest = rendered.partition(_CACHE_BREAK)
@@ -51,17 +48,16 @@ async def review_one_persona(
     persona: Persona,
     persona_index: int,
     synthesis: SynthesisConfig,
+    site_text: str,
+    site_title: str,
+    site_url: str,
 ) -> tuple[PersonaReview, UsageInfo]:
-    rendered_html = (run_dir / "rendered_dom.html").read_text(encoding="utf-8")
-    page_text = extract_visible_text(rendered_html)[:_PAGE_TEXT_CAP]
-    page_title = extract_title(rendered_html)
-
     prompt = load_prompt(prompts_dir() / "04_persona_review.md")
     system, user = prompt.render(
         persona_json=persona.model_dump_json(indent=2),
-        url=url,
-        page_title=page_title,
-        page_text=page_text,
+        site_url=site_url,
+        site_title=site_title,
+        site_text=site_text,
     )
     cached_prefix, user_rest = _split_on_cache_break(user)
 
@@ -91,10 +87,16 @@ async def run_persona_reviews(
         (run_dir / "personas.json").read_text(encoding="utf-8")
     )
 
+    # Build the corpus once; reuse across all persona reviews.
+    site_text = build_site_corpus(run_dir)
+    site_title = homepage_title(run_dir)
+    site_url = homepage_url(run_dir) or url
+
     usages: list[UsageInfo] = []
     for i, persona in enumerate(persona_set.personas, start=1):
         review, usage = await review_one_persona(
-            run_dir, url, persona, i, synthesis
+            run_dir, url, persona, i, synthesis,
+            site_text=site_text, site_title=site_title, site_url=site_url,
         )
         target = run_dir / "persona_reviews" / f"persona_{i}.json"
         target.write_text(review.model_dump_json(indent=2), encoding="utf-8")

@@ -312,6 +312,7 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: upp
     <a href="#fingerprint">Fingerprint</a>
     <a href="#scorecard">Scorecard</a>
     <a href="#audit">Technical</a>
+    <a href="#pages">Pages</a>
     <a href="#identity">Identity</a>
     <a href="#page-aware">Page-aware</a>
     <a href="#page-blind">Page-blind</a>
@@ -379,32 +380,80 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: upp
 {% endif %}
 
 {# ---------- 4. Technical audit ---------- #}
-{% if audit %}
+{% if audit and audit.homepage %}
+{% set hp = audit.homepage %}
 <section id="audit">
-  <h2>Technical audit</h2>
+  <h2>Technical audit <span class="layer-tag">homepage detail</span></h2>
   <dl class="kv">
     <dt>Render-mode JS-trapped</dt>
-    <dd>{{ audit.render_mode_diff.js_trapped_pct }}% (raw {{ audit.render_mode_diff.raw_text_chars }} chars → rendered {{ audit.render_mode_diff.rendered_text_chars }} chars)</dd>
+    <dd>{{ hp.render_mode_diff.js_trapped_pct }}% (raw {{ hp.render_mode_diff.raw_text_chars }} chars → rendered {{ hp.render_mode_diff.rendered_text_chars }} chars)</dd>
 
-    <dt>HTTPS</dt><dd>{% if audit.trust_signals.https %}<span class="badge b-ok">yes</span>{% else %}<span class="badge b-bad">no</span>{% endif %}</dd>
-    <dt>H1 count</dt><dd>{{ audit.html_structure.h1_count }}{% if audit.html_structure.heading_hierarchy_violations %} <span class="badge b-warn">{{ audit.html_structure.heading_hierarchy_violations }} hierarchy violations</span>{% endif %}</dd>
-    <dt>Image alt coverage</dt><dd>{{ audit.html_structure.alt_text_coverage_pct }}% ({{ audit.html_structure.images_missing_alt }}/{{ audit.html_structure.image_count }} images missing alt)</dd>
-    <dt>Low-quality link text</dt><dd>{{ audit.html_structure.low_quality_link_text_count }} occurrences</dd>
-    <dt>JSON-LD blocks</dt><dd>{{ audit.structured_data.json_ld_blocks }} ({{ audit.structured_data.json_ld_types | join(', ') if audit.structured_data.json_ld_types else 'none' }}){% if audit.structured_data.missing_recommended_schemas %} · missing: {{ audit.structured_data.missing_recommended_schemas | join(', ') }}{% endif %}</dd>
-    <dt>Open Graph</dt><dd>{{ audit.structured_data.open_graph | length }} tags{% if audit.structured_data.twitter_card %} · twitter card present{% endif %}</dd>
-    <dt>llms.txt</dt><dd>{% if audit.llms_txt.present %}<span class="badge b-ok">present</span> ({{ audit.llms_txt.size_bytes }} bytes){% else %}<span class="badge b-warn">missing</span>{% endif %}</dd>
+    <dt>HTTPS</dt><dd>{% if hp.trust_signals.https %}<span class="badge b-ok">yes</span>{% else %}<span class="badge b-bad">no</span>{% endif %}</dd>
+    <dt>H1 count</dt><dd>{{ hp.html_structure.h1_count }}{% if hp.html_structure.heading_hierarchy_violations %} <span class="badge b-warn">{{ hp.html_structure.heading_hierarchy_violations }} hierarchy violations</span>{% endif %}</dd>
+    <dt>Image alt coverage</dt><dd>{{ hp.html_structure.alt_text_coverage_pct }}% ({{ hp.html_structure.images_missing_alt }}/{{ hp.html_structure.image_count }} images missing alt)</dd>
+    <dt>Low-quality link text</dt><dd>{{ hp.html_structure.low_quality_link_text_count }} occurrences</dd>
+    <dt>JSON-LD blocks</dt><dd>{{ hp.structured_data.json_ld_blocks }} ({{ hp.structured_data.json_ld_types | join(', ') if hp.structured_data.json_ld_types else 'none' }}){% if hp.structured_data.missing_recommended_schemas %} · missing: {{ hp.structured_data.missing_recommended_schemas | join(', ') }}{% endif %}</dd>
+    <dt>Open Graph</dt><dd>{{ hp.structured_data.open_graph | length }} tags{% if hp.structured_data.twitter_card %} · twitter card present{% endif %}</dd>
+    <dt>llms.txt</dt><dd>{% if hp.llms_txt.present %}<span class="badge b-ok">present</span> ({{ hp.llms_txt.size_bytes }} bytes){% else %}<span class="badge b-warn">missing</span>{% endif %}</dd>
     <dt>Trust signals</dt><dd>
-      contact {{ '✓' if audit.trust_signals.contact_info_present else '✗' }} ·
-      privacy {{ '✓' if audit.trust_signals.privacy_policy_link else '✗' }} ·
-      author byline {{ '✓' if audit.trust_signals.author_byline else '✗' }} ·
-      last-updated {{ '✓' if audit.trust_signals.last_updated_date else '✗' }}
+      contact {{ '✓' if hp.trust_signals.contact_info_present else '✗' }} ·
+      privacy {{ '✓' if hp.trust_signals.privacy_policy_link else '✗' }} ·
+      author byline {{ '✓' if hp.trust_signals.author_byline else '✗' }} ·
+      last-updated {{ '✓' if hp.trust_signals.last_updated_date else '✗' }}
     </dd>
     <dt>AI crawler access</dt><dd>
-      {% for bot, status in audit.ai_crawler_access.crawlers.items() %}
+      {% for bot, status in hp.ai_crawler_access.crawlers.items() %}
         <span class="badge b-{{ 'ok' if status == 'allowed' else 'bad' }}" style="margin: 1px 2px;">{{ bot }}</span>
       {% endfor %}
     </dd>
   </dl>
+
+  {% if audit.site_aggregates %}
+  {% set sa = audit.site_aggregates %}
+  <h3 style="margin-top: 20px;">Site-wide aggregates ({{ audit.pages_audited }} pages audited)</h3>
+  <dl class="kv">
+    <dt>Avg JS-trapped %</dt><dd>{{ sa.avg_js_trapped_pct }}%</dd>
+    <dt>Avg alt-text coverage</dt><dd>{{ sa.avg_alt_text_coverage_pct }}%</dd>
+    <dt>Pages with H1 hierarchy violations</dt><dd>{{ sa.pages_with_heading_hierarchy_violations }} / {{ audit.pages_audited }}</dd>
+    <dt>Pages with JSON-LD</dt><dd>{{ sa.pages_with_json_ld }} / {{ audit.pages_audited }}</dd>
+    <dt>Pages missing privacy link</dt><dd>{{ sa.pages_missing_privacy_link }} / {{ audit.pages_audited }}</dd>
+    <dt>Pages missing contact info</dt><dd>{{ sa.pages_missing_contact_info }} / {{ audit.pages_audited }}</dd>
+    {% if sa.pages_not_https %}
+    <dt>Pages not HTTPS</dt><dd><span class="badge b-bad">{{ sa.pages_not_https }} / {{ audit.pages_audited }}</span></dd>
+    {% endif %}
+  </dl>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ---------- 4b. Pages crawled ---------- #}
+{% if discovery and discovery.pages %}
+<section id="pages">
+  <h2>Pages crawled <span class="layer-tag">{{ discovery.total }} pages</span></h2>
+  <p style="color: var(--muted); margin-bottom: 12px;">
+    Discovery: homepage + nav/header/footer anchors + 2 levels deep, capped at 100 same-domain URLs.
+  </p>
+  <table>
+    <thead><tr><th>URL</th><th style="width: 80px;">Depth</th><th style="width: 100px;">Status</th></tr></thead>
+    <tbody>
+    {% for p in discovery.pages %}
+    <tr>
+      <td><code style="font-size: 12px;">{{ p.url }}</code></td>
+      <td>
+        {% if p.depth == 0 %}home
+        {% elif p.is_anchor %}anchor
+        {% else %}+{{ p.depth }}
+        {% endif %}
+      </td>
+      <td>
+        {% if p.status == 'complete' %}<span class="badge b-ok">ok</span>
+        {% else %}<span class="badge b-bad">{{ p.status }}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
 </section>
 {% endif %}
 
@@ -621,15 +670,16 @@ th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: upp
 <section id="method" class="method">
   <h2>Methodology</h2>
   <ol>
-    <li><strong>Fetch.</strong> Raw HTML via httpx with browser-like headers, plus JS-rendered DOM via Playwright Chromium (waits for networkidle). Both saved to the run folder.</li>
-    <li><strong>Audit.</strong> Pure-Python structural and technical checks: render-mode diff, heading hierarchy, alt-text coverage, JSON-LD validation, AI crawler robots.txt access, llms.txt presence, trust signals, page size.</li>
-    <li><strong>Classify.</strong> One LLM call produces the site fingerprint (category, audience, goal, register, industry, geography, competitors).</li>
+    <li><strong>Discover.</strong> From the homepage, extract every link inside <code>&lt;header&gt;</code>, <code>&lt;nav&gt;</code>, and <code>&lt;footer&gt;</code> as anchor seeds, then BFS two levels deep from those (same-domain only). Capped at {{ discovery.total if discovery else 100 }} URLs. Junk filtered (search, login, cart, file extensions, pagination noise, tracking params).</li>
+    <li><strong>Crawl.</strong> Raw HTML via httpx with browser-like headers, plus JS-rendered DOM via Playwright Chromium (waits for networkidle). Per-page artifacts saved to <code>pages/&lt;slug&gt;/</code>. Up to 5 concurrent browsers; failures on individual pages don't fail the run.</li>
+    <li><strong>Audit.</strong> Pure-Python structural and technical checks per page: render-mode diff, heading hierarchy, alt-text coverage, JSON-LD validation, AI crawler robots.txt access, llms.txt presence, trust signals, page size.</li>
+    <li><strong>Classify.</strong> One LLM call produces the site fingerprint (category, audience, goal, register, industry, geography, competitors), informed by the multi-page corpus.</li>
     <li><strong>Personas.</strong> One LLM call generates {{ persona_reviews | length }} review personas based on the fingerprint, including one LLM-as-reader lens.</li>
-    <li><strong>Page-aware (Layer 3a).</strong> Each enabled provider answers a {{ questions | length }}-question structured set with the page text in the prompt.</li>
-    <li><strong>Page-blind (Layer 3b).</strong> One synthesis call generates first-person seeker queries from the fingerprint; each query is then sent to each provider <em>without</em> the page, and the response is post-processed to detect whether the brand surfaced.</li>
-    <li><strong>Verification.</strong> A separate pass fact-checks each page-aware response against the page text. Only unsupported factual claims are flagged as hallucinations; opinions and inferences are not.</li>
-    <li><strong>Persona reviews.</strong> Each persona reviews the page in their voice, returning a structured score, what-worked / what-failed, and an in-character quotable observation. Prompt caching is used here: page text is sent as a cached prefix, so calls 2-N reuse the cache.</li>
-    <li><strong>Synthesis.</strong> One final call takes every prior artifact and produces the executive summary, score breakdown, convergence and divergence findings, and prioritized recommendations on this page.</li>
+    <li><strong>Site-aware analysis (Layer 3a).</strong> Each enabled provider answers a {{ questions | length }}-question structured set with the multi-page corpus in the prompt.</li>
+    <li><strong>Page-blind (Layer 3b).</strong> One synthesis call generates first-person seeker queries from the fingerprint; each query is then sent to each provider <em>without</em> the site content, and the response is post-processed to detect whether the brand surfaced.</li>
+    <li><strong>Verification.</strong> A separate pass fact-checks each site-aware response against the corpus. Only unsupported factual claims are flagged as hallucinations; opinions and inferences are not.</li>
+    <li><strong>Persona reviews.</strong> Each persona reviews the site in their voice, returning a structured score, what-worked / what-failed, and an in-character quotable observation. Prompt caching is used here: the corpus is sent as a cached prefix, so calls 2-N reuse the cache at 0.1× cost.</li>
+    <li><strong>Synthesis.</strong> One final call takes every prior artifact and produces the executive summary, score breakdown, convergence and divergence findings, and prioritized recommendations for the site.</li>
   </ol>
   <p style="margin-top: 16px;">Generated {{ rendered_at }} by The Lens.</p>
 </section>

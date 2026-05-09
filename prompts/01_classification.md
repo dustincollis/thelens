@@ -15,15 +15,15 @@ One classification call drives many downstream decisions (which personas to gene
 
 # User
 
-Below is the cleaned text content from a website. Classify it into the structured fingerprint defined by the JSON schema. Be specific. Avoid vague labels like "business website" or "general audience."
+Below is the cleaned text content from one or more pages of a website (separated by `## URL:` markers). Classify the SITE — not any one page — into the structured fingerprint defined by the JSON schema. Be specific. Avoid vague labels like "business website" or "general audience."
 
-URL: {{ url }}
+Site URL: {{ site_url }}
 
-Page title: {{ page_title }}
+Homepage title: {{ site_title }}
 
-Page text:
+Site content:
 ---
-{{ page_text }}
+{{ site_text }}
 ---
 
 Return JSON matching this exact schema:

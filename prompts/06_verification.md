@@ -15,13 +15,13 @@ You return JSON only.
 
 # User
 
-Below is the cleaned text content of a website, followed by an AI evaluator's response to a set of standard questions about that page. Your job is to check each claim in the evaluator's response against the actual page content and flag any that are not supported.
+Below is the cleaned text content from one or more pages of a website (separated by `## URL:` markers), followed by an AI evaluator's response to a set of standard questions about the site. Your job is to check each claim in the evaluator's response against the actual site content and flag any that are not supported.
 
-URL: {{ url }}
+Site URL: {{ site_url }}
 
-Page content:
+Site content:
 ---
-{{ page_text }}
+{{ site_text }}
 ---
 
 Evaluator response (the response you are verifying):

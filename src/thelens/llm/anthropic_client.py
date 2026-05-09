@@ -107,14 +107,29 @@ class AnthropicClient:
                 "no tool_use block in response (expected forced tool call)",
             )
 
-        try:
-            parsed = response_format.model_validate(data)
-        except ValidationError as exc:
+        # Defensive unwrap: occasionally the model wraps the response under a
+        # single key matching the type name (e.g. {"personaset": {...}}). Try
+        # the literal payload first, fall back to unwrapping if it fails.
+        candidates: list[dict] = [data]
+        if len(data) == 1:
+            only_value = next(iter(data.values()))
+            if isinstance(only_value, dict):
+                candidates.append(only_value)
+
+        last_err: Exception | None = None
+        parsed: BaseModel | None = None
+        for candidate in candidates:
+            try:
+                parsed = response_format.model_validate(candidate)
+                break
+            except ValidationError as exc:
+                last_err = exc
+        if parsed is None:
             raise LLMError(
                 self.provider_name,
                 self.model,
-                f"tool input did not match {response_format.__name__}:\n{exc}",
-            ) from exc
+                f"tool input did not match {response_format.__name__}:\n{last_err}",
+            )
 
         return parsed, _build_usage(self.provider_name, self.model, response)
 

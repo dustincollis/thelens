@@ -20,6 +20,7 @@ from thelens.llm.base import load_prompt
 from thelens.llm.factory import build_client
 from thelens.llm.retry import with_retry
 from thelens.models import Synthesis, UsageInfo
+from thelens.pipeline.corpus import build_audit_summary, homepage_url
 
 
 async def run_synthesis(
@@ -28,9 +29,10 @@ async def run_synthesis(
     providers: list[ProviderConfig],
     synthesis: SynthesisConfig,
 ) -> tuple[Synthesis, UsageInfo]:
-    technical_audit = (run_dir / "technical_audit.json").read_text(encoding="utf-8")
+    technical_audit = json.dumps(build_audit_summary(run_dir), indent=2)
     classification = (run_dir / "classification.json").read_text(encoding="utf-8")
     personas = (run_dir / "personas.json").read_text(encoding="utf-8")
+    site_url = homepage_url(run_dir) or url
 
     page_aware: dict[str, object] = {}
     page_blind: dict[str, object] = {}
@@ -53,7 +55,7 @@ async def run_synthesis(
 
     prompt = load_prompt(prompts_dir() / "05_synthesis.md")
     system, user = prompt.render(
-        url=url,
+        site_url=site_url,
         technical_audit_json=technical_audit,
         classification_json=classification,
         personas_json=personas,

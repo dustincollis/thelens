@@ -1,8 +1,7 @@
-"""Step 3 — Layer 1: site classification.
+"""Step 3 — Layer 1: site classification (multi-page corpus aware).
 
-Single LLM call. Reads `rendered_dom.html` from the run folder, extracts
-visible text and title, and asks the model to produce a `Classification`
-fingerprint. Default model: Claude Opus.
+Single LLM call. Reads the cross-page site corpus produced by `corpus.py`
+and asks the model to produce a `Classification` fingerprint for the site.
 """
 
 from __future__ import annotations
@@ -11,23 +10,24 @@ from pathlib import Path
 
 from thelens.llm.anthropic_client import AnthropicClient
 from thelens.llm.base import load_prompt
+from thelens.config import prompts_dir
 from thelens.models import Classification, UsageInfo
-from thelens.pipeline._extract import extract_title, extract_visible_text
-
-
-# Page text cap: ~100k chars ≈ 25k tokens. Enough for any reasonable single-page
-# audit. Larger pages are truncated; downstream prompts see the truncated text.
-_PAGE_TEXT_CAP = 100_000
+from thelens.pipeline.corpus import (
+    build_site_corpus,
+    homepage_title,
+    homepage_url,
+)
 
 
 async def classify(run_dir: Path, url: str) -> tuple[Classification, UsageInfo]:
-    """Classify the site. Writes `classification.json` and returns the model + usage."""
-    rendered_html = (run_dir / "rendered_dom.html").read_text(encoding="utf-8")
-    page_text = extract_visible_text(rendered_html)[:_PAGE_TEXT_CAP]
-    page_title = extract_title(rendered_html)
+    site_text = build_site_corpus(run_dir)
+    site_title = homepage_title(run_dir)
+    site_url = homepage_url(run_dir) or url
 
-    prompt = load_prompt(Path.cwd() / "prompts" / "01_classification.md")
-    system, user = prompt.render(url=url, page_title=page_title, page_text=page_text)
+    prompt = load_prompt(prompts_dir() / "01_classification.md")
+    system, user = prompt.render(
+        site_url=site_url, site_title=site_title, site_text=site_text
+    )
 
     client = AnthropicClient()
     parsed, usage = await client.complete(
