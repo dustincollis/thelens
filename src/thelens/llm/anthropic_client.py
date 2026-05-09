@@ -94,44 +94,44 @@ class AnthropicClient:
         if not _model_rejects_temperature(self.model):
             request_kwargs["temperature"] = temperature
 
-        try:
-            response = await self._client.messages.create(**request_kwargs)
-        except Exception as exc:
-            raise LLMError(self.provider_name, self.model, f"API call failed: {exc}") from exc
-
-        data = _extract_tool_input(response)
-        if data is None:
-            raise LLMError(
-                self.provider_name,
-                self.model,
-                "no tool_use block in response (expected forced tool call)",
-            )
-
-        # Defensive unwrap: occasionally the model wraps the response under a
-        # single key matching the type name (e.g. {"personaset": {...}}). Try
-        # the literal payload first, fall back to unwrapping if it fails.
-        candidates: list[dict] = [data]
-        if len(data) == 1:
-            only_value = next(iter(data.values()))
-            if isinstance(only_value, dict):
-                candidates.append(only_value)
-
+        # Forced tool-use is mostly reliable but the model can occasionally
+        # mistype a field name or wrap the output under an extra key. We
+        # try once, retry the API call once if validation fails — second
+        # attempts almost always succeed (the model is non-deterministic).
         last_err: Exception | None = None
-        parsed: BaseModel | None = None
-        for candidate in candidates:
+        response = None
+        for attempt in range(2):
             try:
-                parsed = response_format.model_validate(candidate)
-                break
-            except ValidationError as exc:
-                last_err = exc
-        if parsed is None:
-            raise LLMError(
-                self.provider_name,
-                self.model,
-                f"tool input did not match {response_format.__name__}:\n{last_err}",
-            )
+                response = await self._client.messages.create(**request_kwargs)
+            except Exception as exc:
+                raise LLMError(self.provider_name, self.model, f"API call failed: {exc}") from exc
 
-        return parsed, _build_usage(self.provider_name, self.model, response)
+            data = _extract_tool_input(response)
+            if data is None:
+                last_err = ValueError("no tool_use block in response")
+                continue
+
+            # Defensive unwrap: try the literal payload first, fall back to
+            # unwrapping if the model nested under a single key matching
+            # the type name (e.g. {"personaset": {...}}).
+            candidates: list[dict] = [data]
+            if len(data) == 1:
+                only_value = next(iter(data.values()))
+                if isinstance(only_value, dict):
+                    candidates.append(only_value)
+
+            for candidate in candidates:
+                try:
+                    parsed = response_format.model_validate(candidate)
+                    return parsed, _build_usage(self.provider_name, self.model, response)
+                except ValidationError as exc:
+                    last_err = exc
+
+        raise LLMError(
+            self.provider_name,
+            self.model,
+            f"tool input did not match {response_format.__name__} after retry:\n{last_err}",
+        )
 
     async def complete_text(
         self,

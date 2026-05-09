@@ -104,7 +104,9 @@ def _load_artifacts(run_dir: Path) -> dict[str, object]:
     if review_dir.exists():
         for f in sorted(review_dir.glob("persona_*.json")):
             data = _read_json(f)
-            if data:
+            # Skip failed-marker JSONs — they don't have the review fields
+            # the template expects.
+            if data and data.get("status") != "failed":
                 persona_reviews.append(data)
 
     personas_data = out.get("personas")

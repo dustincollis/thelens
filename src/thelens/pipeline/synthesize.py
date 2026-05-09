@@ -51,7 +51,10 @@ async def run_synthesis(
     review_dir = run_dir / "persona_reviews"
     persona_reviews: dict[str, object] = {}
     for f in sorted(review_dir.glob("persona_*.json")):
-        persona_reviews[f.stem] = json.loads(f.read_text(encoding="utf-8"))
+        data = json.loads(f.read_text(encoding="utf-8"))
+        if data.get("status") == "failed":
+            continue
+        persona_reviews[f.stem] = data
 
     prompt = load_prompt(prompts_dir() / "05_synthesis.md")
     system, user = prompt.render(

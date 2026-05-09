@@ -129,6 +129,139 @@ def open(  # noqa: A001 — `open` shadows builtin only inside this command call
     console.print(f"[green]opened[/] {report_path}")
 
 
+_RERUNNABLE_STEPS = {
+    "page_aware",
+    "page_blind_query_gen",
+    "page_blind",
+    "verification",
+    "persona_reviews",
+    "synthesis",
+    "html_render",
+}
+
+
+@app.command()
+def rerun(
+    run_id: str = typer.Argument(..., help="Full or unique-prefix run_id to reuse."),
+    step: str = typer.Argument(
+        ...,
+        help=(
+            "Step to re-run. One of: page_aware, page_blind_query_gen, "
+            "page_blind, verification, persona_reviews, synthesis, html_render."
+        ),
+    ),
+) -> None:
+    """Re-run one step against an existing run folder, reusing prior artifacts.
+
+    Useful for iterating on prompts: tweak `prompts/04_persona_review.md`,
+    then `lens rerun <run_id> persona_reviews` to regenerate only the
+    persona reviews + html. Pre-AI steps (discover, crawl, classify,
+    personas) are not re-runnable from this command — change those by
+    starting a fresh run.
+    """
+    if step not in _RERUNNABLE_STEPS:
+        Console().print(
+            f"[red]'{step}' is not a re-runnable step.[/] "
+            f"Choose one of: {', '.join(sorted(_RERUNNABLE_STEPS))}"
+        )
+        raise typer.Exit(code=1)
+
+    console = Console()
+    manifest = find_run_by_partial_id(_db_path(), run_id)
+    if manifest is None:
+        console.print(f"[red]no run matching '{run_id}'[/]")
+        raise typer.Exit(code=1)
+
+    run_dir = _runs_dir() / manifest.run_id
+
+    # Load fresh manifest from disk; the SQLite index can be stale.
+    fresh = read_manifest(run_dir)
+
+    asyncio.run(_rerun_step(step, run_dir, fresh, console))
+    console.print(f"[bold green]done[/]  {fresh.run_id} :: {step}")
+
+
+async def _rerun_step(step: str, run_dir: Path, manifest, console: Console) -> None:
+    """Execute a single named step + re-render the HTML report."""
+    from thelens.config import load_models_config, load_questions
+    from thelens.pipeline import multi_llm as multi_llm_step
+    from thelens.pipeline import persona_review as persona_review_step
+    from thelens.pipeline import synthesize as synthesize_step
+    from thelens.render.html import render_html
+    from thelens.storage import upsert_run, write_manifest
+
+    cfg = load_models_config()
+    providers = cfg.enabled_providers()
+    synthesis = cfg.synthesis
+    questions = load_questions()
+    url = manifest.url
+
+    def _track(usage):
+        manifest.actual_cost_usd = round(
+            manifest.actual_cost_usd + usage.cost_usd, 6
+        )
+        if usage.provider not in manifest.providers_used:
+            manifest.providers_used.append(usage.provider)
+
+    if step == "page_aware":
+        usages = await multi_llm_step.run_page_aware(
+            run_dir, url, providers, questions, console
+        )
+        for u in usages:
+            _track(u)
+
+    elif step == "page_blind_query_gen":
+        from thelens.models import Classification
+        cls = Classification.model_validate_json(
+            (run_dir / "classification.json").read_text(encoding="utf-8")
+        )
+        _, usage = await multi_llm_step.run_page_blind_query_generation(
+            run_dir, cls, synthesis
+        )
+        _track(usage)
+
+    elif step == "page_blind":
+        from thelens.models import PageBlindQuerySet
+        qs = PageBlindQuerySet.model_validate_json(
+            (run_dir / "page_blind_queries.json").read_text(encoding="utf-8")
+        )
+        usages = await multi_llm_step.run_page_blind(
+            run_dir, url, qs, providers, console
+        )
+        for u in usages:
+            _track(u)
+
+    elif step == "verification":
+        usages = await multi_llm_step.run_verification(
+            run_dir, url, providers, synthesis, console
+        )
+        for u in usages:
+            _track(u)
+
+    elif step == "persona_reviews":
+        usages = await persona_review_step.run_persona_reviews(
+            run_dir, url, synthesis, console
+        )
+        for u in usages:
+            _track(u)
+
+    elif step == "synthesis":
+        result, usage = await synthesize_step.run_synthesis(
+            run_dir, url, providers, synthesis
+        )
+        _track(usage)
+        manifest.composite_score = result.composite_score
+
+    # Always re-render the report after a step finishes successfully so
+    # the user sees the new output immediately.
+    render_html(run_dir, manifest)
+    manifest.step_status[step] = "complete"  # type: ignore[assignment]
+    if step != "html_render":
+        manifest.step_status["html_render"] = "complete"  # type: ignore[assignment]
+    write_manifest(run_dir, manifest)
+    upsert_run(_db_path(), manifest)
+
+
 @app.command()
 def reindex() -> None:
     """Rebuild the SQLite index from the runs/ folder."""

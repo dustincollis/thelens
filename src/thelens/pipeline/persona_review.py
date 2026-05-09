@@ -16,6 +16,7 @@ cost — meaningful at 100-page corpus sizes.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from rich.console import Console
@@ -92,13 +93,36 @@ async def run_persona_reviews(
     site_title = homepage_title(run_dir)
     site_url = homepage_url(run_dir) or url
 
+    # Per-persona failures are non-fatal: we record a failure marker for the
+    # persona and continue. Synthesis still runs against the surviving
+    # reviews. This avoids torching everything spent earlier in the pipeline
+    # because of one flaky LLM call.
     usages: list[UsageInfo] = []
     for i, persona in enumerate(persona_set.personas, start=1):
-        review, usage = await review_one_persona(
-            run_dir, url, persona, i, synthesis,
-            site_text=site_text, site_title=site_title, site_url=site_url,
-        )
         target = run_dir / "persona_reviews" / f"persona_{i}.json"
+        try:
+            review, usage = await review_one_persona(
+                run_dir, url, persona, i, synthesis,
+                site_text=site_text, site_title=site_title, site_url=site_url,
+            )
+        except Exception as exc:
+            target.write_text(
+                json.dumps(
+                    {
+                        "status": "failed",
+                        "persona_name": persona.name,
+                        "persona_role": persona.role,
+                        "error": str(exc),
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            console.print(
+                f"    persona_review/{i} ({persona.name}) [red]failed[/]: {exc}"
+            )
+            continue
+
         target.write_text(review.model_dump_json(indent=2), encoding="utf-8")
         cache_note = ""
         if usage.cache_read_tokens:
