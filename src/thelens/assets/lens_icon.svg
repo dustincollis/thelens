@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor">
+  <!-- Almond lens outline (Sauron silhouette) -->
+  <path d="M2 32 C 14 14, 50 14, 62 32 C 50 50, 14 50, 2 32 Z" stroke-width="2.5"/>
+  <!-- Outer aperture ring, dashed for the instrument feel -->
+  <circle cx="32" cy="32" r="14" stroke-width="1.25" stroke-dasharray="2.5 2"/>
+  <!-- Inner iris ring -->
+  <circle cx="32" cy="32" r="8.5" stroke-width="1.5"/>
+  <!-- Vertical slit pupil -->
+  <rect x="30.5" y="25" width="3" height="14" rx="1" fill="currentColor" stroke="none"/>
+  <!-- Cardinal reticle ticks -->
+  <line x1="32" y1="3" x2="32" y2="7" stroke-width="1.5"/>
+  <line x1="32" y1="57" x2="32" y2="61" stroke-width="1.5"/>
+  <line x1="3" y1="32" x2="7" y2="32" stroke-width="1.5"/>
+  <line x1="57" y1="32" x2="61" y2="32" stroke-width="1.5"/>
+</svg>

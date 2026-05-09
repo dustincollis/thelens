@@ -8,6 +8,7 @@ LLM-generated text that happens to contain HTML is escaped, not rendered.
 
 from __future__ import annotations
 
+import base64
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,9 @@ from markupsafe import Markup
 from thelens.config import load_questions, project_root
 from thelens.models import RunManifest
 from thelens.pipeline.corpus import build_audit_summary, homepage_record
+
+
+_ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "lens_icon.svg"
 
 
 # CommonMark renderer with HTML disabled (LLM output should not be able to
@@ -45,15 +49,32 @@ def render_html(run_dir: Path, manifest: RunManifest) -> Path:
     artifacts = _load_artifacts(run_dir)
     env = _build_env()
     template = env.get_template("report.html.j2")
+    icon_svg, icon_data_uri = _load_icon()
     html = template.render(
         manifest=manifest.model_dump(mode="json"),
         rendered_at=datetime.now(timezone.utc).isoformat(),
         questions=[q.model_dump() for q in load_questions()],
+        icon_svg=icon_svg,
+        icon_data_uri=icon_data_uri,
         **artifacts,
     )
     target = run_dir / "report.html"
     target.write_text(html, encoding="utf-8")
     return target
+
+
+def _load_icon() -> tuple[Markup, str]:
+    """Return `(inline_svg, favicon_data_uri)` for the bundled lens icon.
+
+    Inline SVG is wrapped in `Markup` so Jinja autoescape leaves it alone
+    when embedded in the header. Favicon is base64 since data-URI utf-8
+    encoding for SVG is finicky across browsers.
+    """
+    if not _ICON_PATH.exists():
+        return Markup(""), ""
+    raw = _ICON_PATH.read_bytes()
+    b64 = base64.b64encode(raw).decode("ascii")
+    return Markup(raw.decode("utf-8")), f"data:image/svg+xml;base64,{b64}"
 
 
 def _build_env() -> Environment:

@@ -84,14 +84,30 @@ def _run_audit_blocking(url: str) -> tuple[str, Path, str]:
 # Page setup
 # ============================================================================
 
+_ICON_PATH = Path(__file__).resolve().parent / "assets" / "lens_icon.svg"
+
 st.set_page_config(
     page_title="The Lens",
-    page_icon="🔎",
+    page_icon=str(_ICON_PATH) if _ICON_PATH.exists() else "🔎",
     layout="centered",
     initial_sidebar_state="collapsed",
 )
 
-st.title("The Lens")
+# Inline icon next to the title — the page-icon arg only sets the
+# browser-tab favicon, not anything visible inside the page.
+if _ICON_PATH.exists():
+    icon_svg = _ICON_PATH.read_text(encoding="utf-8")
+    st.markdown(
+        f"""
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+          <div style="width:36px;height:36px;color:#2563eb;">{icon_svg}</div>
+          <div style="font-size:28px;font-weight:600;color:#111827;">The Lens</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    st.title("The Lens")
 st.caption("Local-first website audit with multi-LLM evaluation.")
 
 # ============================================================================
