@@ -198,9 +198,15 @@ def rerun(
     else:
         steps_to_run = [step]
 
-    for s in steps_to_run:
-        console.print(f"[bold]→ {s}[/]")
-        asyncio.run(_rerun_step(s, run_dir, fresh, console))
+    async def _run_chain() -> None:
+        for s in steps_to_run:
+            console.print(f"[bold]→ {s}[/]")
+            await _rerun_step(s, run_dir, fresh, console)
+
+    # One asyncio.run() for the whole chain so SDK connection pools stay
+    # tied to a single event loop (avoids "Event loop is closed" noise
+    # when each per-step loop tears down lingering httpx clients).
+    asyncio.run(_run_chain())
 
     console.print(
         f"[bold green]done[/]  {fresh.run_id} :: "

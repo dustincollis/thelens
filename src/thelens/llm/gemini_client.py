@@ -71,14 +71,19 @@ class GeminiClient:
     ) -> tuple[BaseModel, UsageInfo]:
         # Gemini's automatic prefix caching works similarly to OpenAI's:
         # consistent prefixes get a discount. We concatenate the cached
-        # prefix at the start of `contents` so it sits at a stable
-        # position; explicit cache management (caches.create) is heavier
-        # weight and not necessary at our scale.
+        # prefix at the start of `contents` so it sits at a stable position.
         contents = _build_contents(user, cached_user_prefix)
+
+        # Build a Gemini-compatible schema dict instead of passing the
+        # Pydantic class directly. The auto-conversion path emits
+        # `additionalProperties` which Gemini rejects; we strip it (and
+        # other unsupported metadata) and inline `$ref` pointers.
+        schema_dict = _to_gemini_schema(response_format)
+
         config = gtypes.GenerateContentConfig(
             system_instruction=system,
             response_mime_type="application/json",
-            response_schema=response_format,
+            response_schema=schema_dict,
             max_output_tokens=max_tokens,
             temperature=temperature,
             thinking_config=gtypes.ThinkingConfig(thinking_budget=-1),
@@ -91,22 +96,20 @@ class GeminiClient:
         except Exception as exc:
             raise LLMError(self.provider_name, self.model, f"API call failed: {exc}") from exc
 
-        # The SDK auto-parses into the Pydantic class via `response.parsed`.
-        # Fall back to manual parsing if `parsed` is None (rare but possible).
-        parsed = getattr(response, "parsed", None)
-        if parsed is None:
-            text = (response.text or "").strip()
-            try:
-                import json as _json
-                data = _json.loads(text)
-                parsed = response_format.model_validate(data)
-            except (ValueError, ValidationError) as exc:
-                raise LLMError(
-                    self.provider_name,
-                    self.model,
-                    f"could not parse response as {response_format.__name__}: {exc}\n"
-                    f"first 300 chars: {text[:300]!r}",
-                ) from exc
+        # We pass a dict schema, not a Pydantic class, so response.parsed
+        # isn't auto-populated. Parse + validate manually.
+        text = (response.text or "").strip()
+        try:
+            import json as _json
+            data = _json.loads(text)
+            parsed = response_format.model_validate(data)
+        except (ValueError, ValidationError) as exc:
+            raise LLMError(
+                self.provider_name,
+                self.model,
+                f"could not parse response as {response_format.__name__}: {exc}\n"
+                f"first 300 chars: {text[:300]!r}",
+            ) from exc
         return parsed, _build_usage(self.provider_name, self.model, response)
 
     async def complete_text(
@@ -134,6 +137,52 @@ class GeminiClient:
 
         text = (response.text or "").strip()
         return text, _build_usage(self.provider_name, self.model, response)
+
+
+def _to_gemini_schema(model: type[BaseModel]) -> dict:
+    """Pydantic JSON Schema → Gemini-compatible response_schema dict.
+
+    Gemini's structured-output schema spec is OpenAPI-3.0-derived and
+    rejects several keywords Pydantic emits by default:
+      - `additionalProperties` — not in Gemini's spec
+      - `$schema`, `$defs`, `$ref` — must be inlined
+      - `title` — sometimes accepted, sometimes not, safer to strip
+      - `default` — Gemini ignores; harmless but noisy
+
+    This helper inlines refs from `$defs` and recursively strips the
+    unsupported keys.
+    """
+    schema = model.model_json_schema()
+    schema.pop("$schema", None)
+    defs = schema.pop("$defs", {})
+    schema = _inline_refs(schema, defs)
+    _strip_keys(schema, {"additionalProperties", "title", "default"})
+    return schema
+
+
+def _inline_refs(node: object, defs: dict) -> object:
+    """Replace `$ref` pointers with the referenced subschema."""
+    if isinstance(node, dict):
+        if "$ref" in node:
+            ref = node["$ref"]  # e.g. "#/$defs/ContentMaturity"
+            name = ref.split("/")[-1]
+            return _inline_refs(defs.get(name, {}), defs)
+        return {k: _inline_refs(v, defs) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_inline_refs(x, defs) for x in node]
+    return node
+
+
+def _strip_keys(node: object, keys: set[str]) -> None:
+    """Remove specified keys recursively in-place."""
+    if isinstance(node, dict):
+        for k in keys:
+            node.pop(k, None)
+        for v in node.values():
+            _strip_keys(v, keys)
+    elif isinstance(node, list):
+        for x in node:
+            _strip_keys(x, keys)
 
 
 def _build_contents(user: str, cached_user_prefix: str | None) -> str | list:
