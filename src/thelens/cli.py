@@ -14,6 +14,8 @@ from rich.console import Console
 # IDEs) inject empty `*_API_KEY=` into the env, which would otherwise win.
 load_dotenv(override=True)
 
+import subprocess  # noqa: E402
+import sys  # noqa: E402
 import webbrowser  # noqa: E402
 
 from thelens import __version__  # noqa: E402
@@ -127,6 +129,26 @@ def reindex() -> None:
     console = Console()
     count = reindex_from_filesystem(_db_path(), _runs_dir())
     console.print(f"reindexed {count} run{'s' if count != 1 else ''}")
+
+
+@app.command()
+def dashboard(
+    port: int = typer.Option(8501, "--port", "-p", help="Port for Streamlit."),
+) -> None:
+    """Launch the Streamlit web UI."""
+    app_path = Path(__file__).parent / "app.py"
+    cmd = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(app_path),
+        "--server.port",
+        str(port),
+        "--server.headless",
+        "false",
+    ]
+    subprocess.run(cmd, check=False)
 
 
 @app.command()
